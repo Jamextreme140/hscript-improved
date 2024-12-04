@@ -1232,14 +1232,14 @@ class Interp {
 			error(EInvalidAccess(f));
 
 		if (o is CustomClass) {
-			var proxy:AbstractCustomClass = cast(o, CustomClass);
-			if (proxy._interp.variables.exists(f)) 
+			var proxy:AbstractCustomClass = cast o;
+			if (proxy._interp.variables.exists(f)) {
 				return proxy._interp.variables.get(f);
-			else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
+			} else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
 				return Reflect.getProperty(proxy.superClass, f);
 			} else {
 				try {
-					return proxy.resolveField(f, true);
+					return proxy.resolveField(f);
 				} catch (e:Dynamic) {}
 				error(EUnknownVariable(f));
 			}
@@ -1286,19 +1286,14 @@ class Interp {
 			error(EInvalidAccess(f));
 
 		if (o is CustomClass) {
-			var proxy:AbstractCustomClass = cast(o, CustomClass);
-			if (proxy._interp.variables.exists(f)) 
+			var proxy:CustomClass = cast o;
+			if (proxy._interp.variables.exists(f)) {
 				proxy._interp.variables.set(f, v);
-			else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
+			} else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
 				Reflect.setProperty(proxy.superClass, f, v);
 			} else {
-				try {
-					return proxy.fieldWrite(f, v);
-				}
-				catch (e:Dynamic) {}
 				error(EUnknownVariable(f));
 			}
-			
 			return v;
 		}
 
@@ -1344,7 +1339,7 @@ class Interp {
 		if (o is CustomClass) {
 			_nextCallObject = null;
 			var proxy:CustomClass = cast o;
-			return proxy.callFunction(f, args, true);
+			return proxy.callFunction(f, args);
 		}
 
 		if (_hasScriptObject && o == CustomClassHandler.staticHandler) {

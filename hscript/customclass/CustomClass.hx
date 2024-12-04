@@ -61,8 +61,8 @@ class CustomClass {
 		}
 	}
 
-	public function callFunction(name:String, args:Array<Dynamic> = null, publicAccess:Bool = false) {
-		var field = findField(name, publicAccess);
+	public function callFunction(name:String, args:Array<Dynamic> = null) {
+		var field = findField(name);
 		var r:Dynamic = null;
 
 		if (field != null) {
@@ -108,25 +108,20 @@ class CustomClass {
 		return r;
 	}
 
-	private function findField(name:String, publicAccess:Bool = false):FieldDecl {
+	private function findField(name:String):FieldDecl {
 		if (_cachedFieldDecls != null && _cachedFieldDecls.exists(name)) {
 			return _cachedFieldDecls.get(name);
 		}
 
 		for (f in _class.fields) {
 			if (f.name == name) {
-				if(f.access.contains(APrivate) && publicAccess) {
-					_interp.error(ECustom('Cannot access private field ${name}'));
-					return null;
-				}
-				else 
-					return f;
+				return f;
 			}
 		}
 		return null;
 	}
 
-	private function findFunction(name:String, publicAccess:Bool = false):FunctionDecl {
+	private function findFunction(name:String):FunctionDecl {
 		if (_cachedFunctionDecls != null && _cachedFunctionDecls.exists(name)) {
 			return _cachedFunctionDecls.get(name);
 		}
@@ -135,12 +130,7 @@ class CustomClass {
 			if (f.name == name) {
 				switch (f.kind) {
 					case KFunction(fn):
-						if(f.access.contains(APrivate) && publicAccess) {
-							_interp.error(ECustom('Cannot access private field ${name}'));
-							return null;
-						}
-						else
-							return fn;
+						return fn;
 					default:
 				}
 			}
@@ -149,21 +139,16 @@ class CustomClass {
 		return null;
 	}
 
-	private function findVar(name:String, publicAccess:Bool = false):VarDecl {
+	private function findVar(name:String):VarDecl {
 		if (_cachedVarDecls != null && _cachedVarDecls.exists(name)) {
-			return _cachedVarDecls.get(name);
+			_cachedVarDecls.get(name);
 		}
 
 		for (f in _class.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
 					case KVar(v):
-						if(f.access.contains(APrivate) && publicAccess) {
-							_interp.error(ECustom('Cannot access private field ${name}'));
-							return null;
-						}
-						else 
-							return v;
+						return v;
 					default:
 				}
 			}
@@ -182,7 +167,6 @@ class CustomClass {
 		_cachedVarDecls = [];
 
 		for (f in _class.fields) {
-			if(f.access.contains(APrivate)) continue; //Only catch non-private variables
 			_cachedFieldDecls.set(f.name, f);
 			switch (f.kind) {
 				case KFunction(fn):

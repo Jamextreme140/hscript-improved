@@ -3,7 +3,7 @@ package hscript.customclass;
 @:forward
 @:access(hscript.customclass.CustomClass)
 abstract AbstractCustomClass(CustomClass) from CustomClass {
-	private function resolveField(name:String, isPublic:Bool = false):Dynamic {
+	private function resolveField(name:String):Dynamic {
 		switch (name) {
 			case "superClass":
 				return this.superClass;
@@ -37,11 +37,11 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 						case _: @:privateAccess this._interp.error(ECustom("only 8 params allowed in script class functions (.bind limitation)"));
 						#end
 					}
-				} else if (this.findVar(name, isPublic) != null) {
-					var v = this.findVar(name, isPublic);
+				} else if (this.findVar(name) != null) {
+					var v = this.findVar(name);
 
 					var varValue:Dynamic = null;
-					if (!this._interp.variables.exists(name)) {
+					if (this._interp.variables.exists(name) == false) {
 						if (v.expr != null) {
 							varValue = this._interp.expr(v.expr);
 							this._interp.variables.set(name, varValue);
@@ -71,13 +71,13 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 	}
 
 	@:op(a.b) private function fieldRead(name:String):Dynamic {
-		return resolveField(name, true);
+		return resolveField(name);
 	}
 
 	@:op(a.b) private function fieldWrite(name:String, value:Dynamic) {
 		switch (name) {
 			case _:
-				if (this.findVar(name, true) != null) {
+				if (this.findVar(name) != null) {
 					this._interp.variables.set(name, value);
 					return value;
 				} else if (Reflect.hasField(this.superClass, name)) {
