@@ -1,5 +1,7 @@
 package hscript.customclass;
 
+using Lambda;
+
 @:forward
 @:access(hscript.customclass.CustomClass)
 abstract AbstractCustomClass(CustomClass) from CustomClass {
@@ -59,6 +61,12 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 					try {
 						return superScriptClass.fieldRead(name);
 					} catch (e:Dynamic) {}
+				} else {
+					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
+
+					if(superField != null) {
+						return Reflect.getProperty(this.superClass, superField);
+					}
 				}
 		}
 
@@ -88,6 +96,12 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 					try {
 						return superScriptClass.fieldWrite(name, value);
 					} catch (e:Dynamic) {}
+				} else {
+					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
+
+					if(superField != null) {
+						return Reflect.setProperty(this.superClass, superField, value);
+					}
 				}
 		}
 
