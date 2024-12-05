@@ -9,7 +9,8 @@ class CustomClass {
 	private var _class:CustomClassDecl;
 	private var _interp:Interp;
 
-	public var superClass:Dynamic = null;
+	public var superClass(default, null):Dynamic = null;
+	public var superConstructor(default, null):Dynamic;
 
 	public var className(get, null):String;
 
@@ -27,6 +28,7 @@ class CustomClass {
 		this._interp = new Interp(this);
 		buildCaches();
 		buildImports();
+		buildSuperConstructor();
 
 		if (findField("new") != null) {
 			callFunction("new", args);
@@ -38,8 +40,10 @@ class CustomClass {
 		}
 	}
 
-	private function superConstructor(...args:Dynamic) {
-		createSuperClass(args.toArray());
+	private function buildSuperConstructor() {
+		superConstructor = Reflect.makeVarArgs(function(args:Array<Dynamic>) {
+			createSuperClass(args);
+		});
 	}
 
 	private function createSuperClass(args:Array<Dynamic> = null) {
