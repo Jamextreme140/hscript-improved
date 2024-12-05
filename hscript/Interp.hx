@@ -77,7 +77,11 @@ class Interp {
 		return _customClassDescriptors.get(name);
 	}
 
-	private static function registerScriptClass(c:CustomClassDecl) {
+	public static function customClassDescriptorExist(name:String):Bool {
+		return _customClassDescriptors.exists(name);
+	}
+
+	private static function registerCustomClass(c:CustomClassDecl) {
 		var name = c.name;
 		if (c.pkg != null) {
 			name = c.pkg.join(".") + "." + name;
@@ -613,6 +617,9 @@ class Interp {
 		if (customClasses.exists(id))
 			return customClasses.get(id);
 
+		if(_customClassDescriptors.exists(id))
+			return _customClassDescriptors.get(id).name;
+
 		if (_hasScriptObject) {
 			// search in object
 			if (id == "this") {
@@ -814,7 +821,22 @@ class Interp {
 						error(EInvalidOp(op));
 				}
 			case ECall(e, params):
-				var args:Array<Dynamic> = [for (p in params) expr(p)];
+				var args:Array<Dynamic> = [];//[for (p in params) expr(p)];
+				for(p in params) {
+					switch(Tools.expr(p)) {
+						case EIdent(id):
+							var ident = resolve(id);
+							if(ident is CustomClass) {
+								var customClass:CustomClass = cast ident;
+								args.push(customClass.superClass != null ? customClass.superClass : customClass);
+							}
+							else {
+								args.push(ident);
+							}
+						default:
+							args.push(expr(p));
+					}
+				}
 
 				switch (Tools.expr(e)) {
 					case EField(e, f, s):
@@ -1364,7 +1386,6 @@ class Interp {
 			return null;
 		}
 
-		// Isolated this to not break scripts
 		if (_inCustomClass) {
 			if (o == null && _nextCallObject != null) {
 				o = _nextCallObject;
@@ -1458,7 +1479,7 @@ class Interp {
 						fields: c.fields,
 						isExtern: c.isExtern
 					};
-					registerScriptClass(classDecl);
+					registerCustomClass(classDecl);
 				case DTypedef(_):
 			}
 		}

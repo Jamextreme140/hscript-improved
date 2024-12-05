@@ -25,6 +25,7 @@ class CustomClass {
 		this._class = _class;
 		this._interp = new Interp(this);
 		buildCaches();
+		buildImports();
 
 		if (findField("new") != null) {
 			callFunction("new", args);
@@ -141,7 +142,7 @@ class CustomClass {
 
 	private function findVar(name:String):VarDecl {
 		if (_cachedVarDecls != null && _cachedVarDecls.exists(name)) {
-			_cachedVarDecls.get(name);
+			return _cachedVarDecls.get(name);
 		}
 
 		for (f in _class.fields) {
@@ -179,6 +180,18 @@ class CustomClass {
 					}
 			}
 		}
+	}
+
+	private function buildImports() {
+
+		// TODO: implement Alias imports
+		for(_import in _class.imports) {
+			var importedClass = _import.join(".");
+			if(Interp.customClassDescriptorExist(importedClass))
+				continue;
+			this._interp.expr(EImport(_import.join(".")));
+		}
+		
 	}
 
 	// I can't get what is the purpose of this...

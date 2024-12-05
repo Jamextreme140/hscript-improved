@@ -13,7 +13,7 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 				return this.findFunction;
 			case "callFunction":
 				return this.callFunction;
-			case _:
+			default:
 				if (this.findFunction(name) != null) {
 					var fn = this.findFunction(name);
 					var nargs = 0;
@@ -41,7 +41,7 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 					var v = this.findVar(name);
 
 					var varValue:Dynamic = null;
-					if (this._interp.variables.exists(name) == false) {
+					if (!this._interp.variables.exists(name)) {
 						if (v.expr != null) {
 							varValue = this._interp.expr(v.expr);
 							this._interp.variables.set(name, varValue);
