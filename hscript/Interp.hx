@@ -1350,14 +1350,6 @@ class Interp {
 	}
 
 	function fcall(o:Dynamic, f:String, args:Array<Dynamic>):Dynamic {
-		if (_inCustomClass) {
-			// OVERRIDE CHANGE: Custom logic to handle super calls to prevent infinite recursion
-			if (o == _proxy.superClass) {
-				// Force call super function.
-				return fcall(o, '__super_${f}', args);
-			}
-		}
-
 		if (o is CustomClass) {
 			_nextCallObject = null;
 			var proxy:CustomClass = cast o;
