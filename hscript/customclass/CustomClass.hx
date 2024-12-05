@@ -1,5 +1,6 @@
 package hscript.customclass;
 
+import hscript.Expr;
 import hscript.Expr.VarDecl;
 import hscript.Expr.FunctionDecl;
 import hscript.Expr.FieldDecl;
@@ -183,13 +184,25 @@ class CustomClass {
 	}
 
 	private function buildImports() {
-
 		// TODO: implement Alias imports
+		var i:Int = 0;
 		for(_import in _class.imports) {
 			var importedClass = _import.join(".");
 			if(Interp.customClassDescriptorExist(importedClass))
 				continue;
-			this._interp.expr(EImport(_import.join(".")));
+			#if hscriptPos
+			var e:Expr = {
+				e: ExprDef.EImport(importedClass),
+				pmin: 0,
+				pmax: 0,
+				origin: "",
+				line: i
+			};
+			#else
+			var e = Expr.EImport(importedClass);
+			#end
+			this._interp.expr(e);
+			i++;
 		}
 		
 	}
