@@ -4,6 +4,8 @@ using Lambda;
 
 @:forward
 @:access(hscript.customclass.CustomClass)
+@:noCompletion
+//TODO: remove this
 abstract AbstractCustomClass(CustomClass) from CustomClass {
 	private function resolveField(name:String):Dynamic {
 		switch (name) {
@@ -30,26 +32,26 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 						case 3: return this.callFunction3.bind(name, _, _, _);
 						case 4: return this.callFunction4.bind(name, _, _, _, _);
 						#if neko
-						case _: @:privateAccess this._interp.error(ECustom("only 4 params allowed in script class functions (.bind limitation)"));
+						case _: @:privateAccess this.__interp.error(ECustom("only 4 params allowed in script class functions (.bind limitation)"));
 						#else
 						case 5: return this.callFunction5.bind(name, _, _, _, _, _);
 						case 6: return this.callFunction6.bind(name, _, _, _, _, _, _);
 						case 7: return this.callFunction7.bind(name, _, _, _, _, _, _, _);
 						case 8: return this.callFunction8.bind(name, _, _, _, _, _, _, _, _);
-						case _: @:privateAccess this._interp.error(ECustom("only 8 params allowed in script class functions (.bind limitation)"));
+						case _: @:privateAccess this.__interp.error(ECustom("only 8 params allowed in script class functions (.bind limitation)"));
 						#end
 					}
 				} else if (this.findVar(name) != null) {
 					var v = this.findVar(name);
 
 					var varValue:Dynamic = null;
-					if (!this._interp.variables.exists(name)) {
+					if (!this.__interp.variables.exists(name)) {
 						if (v.expr != null) {
-							varValue = this._interp.expr(v.expr);
-							this._interp.variables.set(name, varValue);
+							varValue = this.__interp.expr(v.expr);
+							this.__interp.variables.set(name, varValue);
 						}
 					} else {
-						varValue = this._interp.variables.get(name);
+						varValue = this.__interp.variables.get(name);
 					}
 					return varValue;
 				} else if (Reflect.isFunction(Reflect.getProperty(this.superClass, name))) {
@@ -86,7 +88,7 @@ abstract AbstractCustomClass(CustomClass) from CustomClass {
 		switch (name) {
 			case _:
 				if (this.findVar(name) != null) {
-					this._interp.variables.set(name, value);
+					this.__interp.variables.set(name, value);
 					return value;
 				} else if (Reflect.hasField(this.superClass, name)) {
 					Reflect.setProperty(this.superClass, name, value);

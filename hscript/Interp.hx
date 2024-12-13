@@ -160,7 +160,7 @@ class Interp {
 	var curExpr:Expr;
 	#end
 
-	private var _proxy(default, null):AbstractCustomClass = null;
+	private var _proxy(default, null):CustomClass = null;
 	private var _nextCallObject(default, null):Dynamic = null;
 	private var _inCustomClass(get, never):Bool;
 
@@ -168,7 +168,7 @@ class Interp {
 		return _proxy != null;
 	}
 
-	public function new(?proxy:AbstractCustomClass) {
+	public function new(?proxy:CustomClass) {
 		locals = new Map();
 		declared = [];
 		resetVariables();
@@ -1254,14 +1254,14 @@ class Interp {
 			error(EInvalidAccess(f));
 
 		if (o is CustomClass) {
-			var proxy:AbstractCustomClass = cast o;
-			if (proxy._interp.variables.exists(f)) {
-				return proxy._interp.variables.get(f);
+			var proxy:CustomClass = cast o;
+			if (proxy.__interp.variables.exists(f)) {
+				return proxy.__interp.variables.get(f);
 			} else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
 				return Reflect.getProperty(proxy.superClass, f);
 			} else {
 				try {
-					return proxy.resolveField(f);
+					return proxy.hget(f);
 				} catch (e:Dynamic) {}
 				error(EUnknownVariable(f));
 			}
@@ -1309,8 +1309,8 @@ class Interp {
 
 		if (o is CustomClass) {
 			var proxy:CustomClass = cast o;
-			if (proxy._interp.variables.exists(f)) {
-				proxy._interp.variables.set(f, v);
+			if (proxy.__interp.variables.exists(f)) {
+				proxy.__interp.variables.set(f, v);
 			} else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
 				Reflect.setProperty(proxy.superClass, f, v);
 			} else {
@@ -1350,6 +1350,11 @@ class Interp {
 	}
 
 	function fcall(o:Dynamic, f:String, args:Array<Dynamic>):Dynamic {
+		// Custom logic to handle super calls to prevent infinite recursion
+		if(_inCustomClass && o == _proxy.superClass) {
+			// Force call super function.
+			return fcall(o, '_HX_SUPER__${f}', args);
+		}
 		if (o is CustomClass) {
 			_nextCallObject = null;
 			var proxy:CustomClass = cast o;
@@ -1393,21 +1398,21 @@ class Interp {
 	function cnew(cl:String, args:Array<Dynamic>):Dynamic {
 		// Custom Class
 		if (_customClassDescriptors.exists(cl)) {
-			var proxy:AbstractCustomClass = new CustomClass(_customClassDescriptors.get(cl), args);
+			var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(cl), args);
 			return proxy;
 		} else if (_inCustomClass) {
-			if (_proxy._class.pkg != null) {
-				var packagedClass = _proxy._class.pkg.join(".") + "." + cl;
+			if (_proxy.__class.pkg != null) {
+				var packagedClass = _proxy.__class.pkg.join(".") + "." + cl;
 				if (_customClassDescriptors.exists(packagedClass)) {
-					var proxy:AbstractCustomClass = new CustomClass(_customClassDescriptors.get(packagedClass), args);
+					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(packagedClass), args);
 					return proxy;
 				}
 			}
 
-			if (_proxy._class.imports != null && _proxy.__classc.imports.exists(cl)) {
-				var importedClass = _proxy._class.imports.get(cl).join(".");
+			if (_proxy.__class.imports != null && _proxy.__class.imports.exists(cl)) {
+				var importedClass = _proxy.__class.imports.get(cl).join(".");
 				if (_customClassDescriptors.exists(importedClass)) {
-					var proxy:AbstractCustomClass = new CustomClass(_customClassDescriptors.get(importedClass), args);
+					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(importedClass), args);
 					return proxy;
 				}
 

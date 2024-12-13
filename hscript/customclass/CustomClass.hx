@@ -5,37 +5,45 @@ import hscript.Expr.VarDecl;
 import hscript.Expr.FunctionDecl;
 import hscript.Expr.FieldDecl;
 
-class CustomClass {
-	private var _class:CustomClassDecl;
-	private var _interp:Interp;
+using Lambda;
+using StringTools;
 
-	public var superClass(default, null):Dynamic = null;
+class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCustomBehaviour{
+	public var __interp:Interp;
+	public var __custom__variables:Map<String, Dynamic>;
+	public var __allowSetGet:Bool;
+	public var __real_fields:Array<String>;
+	public var __class__fields:Array<String>;
+
+	public var superClass:IHScriptCustomClassBehaviour = null;
 	public var superConstructor(default, null):Dynamic;
 
 	public var className(get, null):String;
 
+	private var __class:CustomClassDecl;
+
 	private function get_className():String {
 		var name = "";
-		if (_class.pkg != null) {
-			name += _class.pkg.join(".");
+		if (__class.pkg != null) {
+			name += __class.pkg.join(".");
 		}
-		name += _class.name;
+		name += __class.name;
 		return name;
 	}
 
-	public function new(_class:CustomClassDecl, args:Array<Dynamic>) {
-		this._class = _class;
-		this._interp = new Interp(this);
+	public function new(__class:CustomClassDecl, args:Array<Dynamic>) {
+		this.__class = __class;
+		this.__interp = new Interp(this);
 		buildCaches();
 		buildImports();
 		buildSuperConstructor();
 
 		if (findField("new") != null) {
 			callFunction("new", args);
-			if (superClass == null && _class.extend != null) {
-				@:privateAccess this._interp.error(ECustom("super() not called"));
+			if (superClass == null && __class.extend != null) {
+				@:privateAccess this.__interp.error(ECustom("super() not called"));
 			}
-		} else if (_class.extend != null) {
+		} else if (__class.extend != null) {
 			createSuperClass(args);
 		}
 	}
@@ -50,20 +58,53 @@ class CustomClass {
 		if (args == null)
 			args = [];
 
-		var extendString = new Printer().typeToString(_class.extend);
-		if (_class.pkg != null && extendString.indexOf(".") == -1) {
-			extendString = _class.pkg.join(".") + "." + extendString;
+		var extendString = new Printer().typeToString(__class.extend);
+		if (__class.pkg != null && extendString.indexOf(".") == -1) {
+			extendString = __class.pkg.join(".") + "." + extendString;
 		}
 		var classDescriptor = Interp.findCustomClassDescriptor(extendString);
 		if (classDescriptor != null) {
-			var abstractSuperClass:AbstractCustomClass = new CustomClass(classDescriptor, args);
+			var abstractSuperClass:CustomClass = new CustomClass(classDescriptor, args);
 			superClass = abstractSuperClass;
 		} else {
-			var c = Type.resolveClass(extendString);
+			var c = Type.resolveClass('${extendString}_HSX');
 			if (c == null) {
-				@:privateAccess _interp.error(ECustom("could not resolve super class: " + extendString));
+				@:privateAccess __interp.error(ECustom("could not resolve super class: " + extendString));
 			}
 			superClass = Type.createInstance(c, args);
+			setCustomClass();
+		}
+	}
+
+	private function setCustomClass() {
+		var disallowCopy = Type.getInstanceFields(Type.getClass(superClass));
+
+		superClass.__interp = this.__interp;
+		superClass.__custom__variables = this.__interp.variables;
+
+		superClass.__real_fields = disallowCopy; // Predefined class fields
+
+		var comparisonMap:Map<String, Dynamic> = [];
+		for (key => value in this.__interp.variables) {
+			comparisonMap.set(key, value);
+		}
+
+		// get only variables that were not set before
+		var classVariables = [
+			for(key => value in this.__interp.variables)
+				if(!comparisonMap.exists(key) || comparisonMap[key] != value)
+					key => value
+		];
+
+		superClass.__class__fields = [for (key => value in classVariables) key];
+
+		superClass.__allowSetGet = false;
+		for(variable => value in this.__interp.variables) {
+			if(variable == "this" || variable == "super" || variable == "new") continue;
+
+			if(variable.startsWith("set_") || variable.startsWith("get_")) {
+				superClass.__allowSetGet = true;
+			}
 		}
 	}
 
@@ -81,23 +122,23 @@ class CustomClass {
 				if (args != null && i < args.length) {
 					value = args[i];
 				} else if (a.value != null) {
-					value = _interp.expr(a.value);
+					value = __interp.expr(a.value);
 				}
 
-				if (_interp.variables.exists(a.name)) {
-					previousValues.set(a.name, _interp.variables.get(a.name));
+				if (__interp.variables.exists(a.name)) {
+					previousValues.set(a.name, __interp.variables.get(a.name));
 				}
-				_interp.variables.set(a.name, value);
+				__interp.variables.set(a.name, value);
 				i++;
 			}
 
-			r = _interp.execute(fn.body);
+			r = __interp.execute(fn.body);
 
 			for (a in fn.args) {
 				if (previousValues.exists(a.name)) {
-					_interp.variables.set(a.name, previousValues.get(a.name));
+					__interp.variables.set(a.name, previousValues.get(a.name));
 				} else {
-					_interp.variables.remove(a.name);
+					__interp.variables.remove(a.name);
 				}
 			}
 		} else {
@@ -119,7 +160,7 @@ class CustomClass {
 			return _cachedFieldDecls.get(name);
 		}
 
-		for (f in _class.fields) {
+		for (f in __class.fields) {
 			if (f.name == name) {
 				return f;
 			}
@@ -132,7 +173,7 @@ class CustomClass {
 			return _cachedFunctionDecls.get(name);
 		}
 
-		for (f in _class.fields) {
+		for (f in __class.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
 					case KFunction(fn):
@@ -146,11 +187,7 @@ class CustomClass {
 	}
 
 	private function findVar(name:String):VarDecl {
-		if (_cachedVarDecls != null && _cachedVarDecls.exists(name)) {
-			return _cachedVarDecls.get(name);
-		}
-
-		for (f in _class.fields) {
+		for (f in __class.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
 					case KVar(v):
@@ -172,17 +209,47 @@ class CustomClass {
 		_cachedFunctionDecls = [];
 		_cachedVarDecls = [];
 
-		for (f in _class.fields) {
+		for (f in __class.fields) {
 			_cachedFieldDecls.set(f.name, f);
 			switch (f.kind) {
 				case KFunction(fn):
 					_cachedFunctionDecls.set(f.name, fn);
+					if(fn.body != null) {
+						var isOverride:Bool = f.access.find((f:FieldAccess) -> return f == AOverride) != null;
+						#if hscriptPos
+						var e:Expr = {
+							e: ExprDef.EFunction(fn.args, fn.body, f.name, fn.ret, false, false, isOverride, false, false, false),
+							pmin: 0,
+							pmax: 0,
+							origin: "",
+							line: i
+						};
+						#else
+						var e = Expr.EFunction(fn.args, fn.body, f.name, fn.ret, false, false, isOverride, false, false, false);
+						#end
+						this.__interp.expr(e);
+					}
 				case KVar(v):
 					_cachedVarDecls.set(f.name, v);
+					#if hscriptPos
+					var e:Expr = {
+						e: ExprDef.EVar(f.name, v.type, v.expr, false, false, false, false, false),
+						pmin: 0,
+						pmax: 0,
+						origin: "",
+						line: i
+					};
+					#else
+					var e = Expr.EVar(f.name, v.type, v.expr, false, false, false, false, false);
+					#end
+					this.__interp.expr(e);
+					//Unnecessary since passing the expression sets the variable automatically
+					/*
 					if (v.expr != null) {
-						var varValue = this._interp.expr(v.expr);
-						this._interp.variables.set(f.name, varValue);
+						var varValue = this.__interp.expr(v.expr);
+						this.__interp.variables.set(f.name, varValue);
 					}
+					*/
 			}
 		}
 	}
@@ -190,7 +257,7 @@ class CustomClass {
 	private function buildImports() {
 		// TODO: implement Alias imports
 		var i:Int = 0;
-		for(_import in _class.imports) {
+		for(_import in __class.imports) {
 			var importedClass = _import.join(".");
 			if(Interp.customClassDescriptorExist(importedClass))
 				continue;
@@ -205,12 +272,136 @@ class CustomClass {
 			#else
 			var e = Expr.EImport(importedClass);
 			#end
-			this._interp.expr(e);
+			this.__interp.expr(e);
 			i++;
 		}
 		
 	}
 
+	public function hget(name:String):Dynamic {
+		return resolveField(name);
+	}
+	
+	
+	public function hset(name:String, val:Dynamic):Dynamic {
+		switch (name) {
+			case _:
+				if (this.findVar(name) != null) {
+					this.__interp.variables.set(name, val);
+					return val;
+				} else if (Reflect.hasField(this.superClass, name)) {
+					Reflect.setProperty(this.superClass, name, val);
+					return val;
+				} else if (this.superClass != null && (this.superClass is CustomClass)) {
+					var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
+					try {
+						return superScriptClass.hset(name, val);
+					} catch (e:Dynamic) {}
+				} else {
+					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
+
+					if(superField != null) {
+						Reflect.setProperty(this.superClass, superField, val);
+						return val;
+					}
+				}
+		}
+
+		if (this.superClass == null) {
+			throw "field '" + name + "' does not exist in script class '" + this.className + "'";
+		} else {
+			throw "field '" + name + "' does not exist in script class '" + this.className + "' or super class '"
+				+ Type.getClassName(Type.getClass(this.superClass)) + "'";
+		}
+	}
+
+	public function __callGetter(name:String):Dynamic {
+		__allowSetGet = false;
+		var v = __custom__variables.get("get_" + name)();
+		__allowSetGet = true;
+		return v;
+	}
+
+	public function __callSetter(name:String, val:Dynamic):Dynamic {
+		__allowSetGet = false;
+		var v = __custom__variables.get("set_" + name)(val);
+		__allowSetGet = true;
+		return v;
+	}
+
+	private function resolveField(name:String):Dynamic {
+		switch (name) {
+			case "superClass":
+				return this.superClass;
+			case "createSuperClass":
+				return this.createSuperClass;
+			case "findFunction":
+				return this.findFunction;
+			case "callFunction":
+				return this.callFunction;
+			default:
+				if (this.findFunction(name) != null) {
+					var fn = this.findFunction(name);
+					var nargs = 0;
+					if (fn.args != null) {
+						nargs = fn.args.length;
+					}
+					// TODO: figure out how to optimize this. Macros???
+					switch (nargs) {
+						case 0: return this.callFunction0.bind(name);
+						case 1: return this.callFunction1.bind(name, _);
+						case 2: return this.callFunction2.bind(name, _, _);
+						case 3: return this.callFunction3.bind(name, _, _, _);
+						case 4: return this.callFunction4.bind(name, _, _, _, _);
+						#if neko
+						case _: @:privateAccess this.__interp.error(ECustom("only 4 params allowed in script class functions (.bind limitation)"));
+						#else
+						case 5: return this.callFunction5.bind(name, _, _, _, _, _);
+						case 6: return this.callFunction6.bind(name, _, _, _, _, _, _);
+						case 7: return this.callFunction7.bind(name, _, _, _, _, _, _, _);
+						case 8: return this.callFunction8.bind(name, _, _, _, _, _, _, _, _);
+						case _: @:privateAccess this.__interp.error(ECustom("only 8 params allowed in script class functions (.bind limitation)"));
+						#end
+					}
+				} else if (this.findVar(name) != null) {
+					var v = this.findVar(name);
+
+					var varValue:Dynamic = null;
+					if (!this.__interp.variables.exists(name)) {
+						if (v.expr != null) {
+							varValue = this.__interp.expr(v.expr);
+							this.__interp.variables.set(name, varValue);
+						}
+					} else {
+						varValue = this.__interp.variables.get(name);
+					}
+					return varValue;
+				} else if (Reflect.isFunction(Reflect.getProperty(this.superClass, name))) {
+					return Reflect.getProperty(this.superClass, name);
+				} else if (Reflect.hasField(this.superClass, name)) {
+					return Reflect.field(this.superClass, name);
+				} else if (this.superClass != null && (this.superClass is CustomClass)) {
+					var superScriptClass:AbstractCustomClass = cast(this.superClass, CustomClass);
+					try {
+						return superScriptClass.hget(name);
+					} catch (e:Dynamic) {}
+				} else {
+					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
+
+					if(superField != null) {
+						return Reflect.getProperty(this.superClass, superField);
+					}
+				}
+		}
+
+		if (this.superClass == null) {
+			throw "field '" + name + "' does not exist in script class '" + this.className + "'";
+		} else {
+			throw "field '" + name + "' does not exist in script class '" + this.className + "' or super class '"
+				+ Type.getClassName(Type.getClass(this.superClass)) + "'";
+		}
+	}
+	
 	// I can't get what is the purpose of this...
 	// This is for the abstract class
 	private inline function callFunction0(name:String) {
