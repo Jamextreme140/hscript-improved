@@ -222,7 +222,7 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 							pmin: 0,
 							pmax: 0,
 							origin: "",
-							line: i
+							line: 0
 						};
 						#else
 						var e = Expr.EFunction(fn.args, fn.body, f.name, fn.ret, false, false, isOverride, false, false, false);
@@ -237,7 +237,7 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 						pmin: 0,
 						pmax: 0,
 						origin: "",
-						line: i
+						line: 0
 					};
 					#else
 					var e = Expr.EVar(f.name, v.type, v.expr, false, false, false, false, false);
