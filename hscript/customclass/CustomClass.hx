@@ -34,8 +34,8 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 	public function new(__class:CustomClassDecl, args:Array<Dynamic>) {
 		this.__class = __class;
 		this.__interp = new Interp(this);
-		buildCaches();
 		buildImports();
+		buildCaches();
 		buildSuperConstructor();
 
 		if (findField("new") != null) {
@@ -143,6 +143,8 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 			}
 		} else {
 			var fixedArgs = [];
+			// OVERRIDE CHANGE: Use _HX_SUPER__ when calling superclass
+			var fixedName = '_HX_SUPER__${name}';
 			for (a in args) {
 				if ((a is CustomClass)) {
 					fixedArgs.push(cast(a, CustomClass).superClass);
@@ -150,7 +152,13 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 					fixedArgs.push(a);
 				}
 			}
-			r = Reflect.callMethod(superClass, Reflect.field(superClass, name), fixedArgs);
+			var superFn = Reflect.field(superClass, fixedName);
+			if(superFn == null) {
+				this.__interp.error(ECustom('Error while calling function super.${name}(): EInvalidAccess'
+					+ '\n'
+					+ 'InvalidAccess error: Super function "${name}" does not exist! Define it or call the correct superclass function.'));
+			}
+			r = Reflect.callMethod(superClass, superFn, fixedArgs);
 		}
 		return r;
 	}
@@ -187,6 +195,11 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 	}
 
 	private function findVar(name:String):VarDecl {
+		if (_cachedVarDecls != null && _cachedVarDecls.exists(name))
+		{
+			return _cachedVarDecls.get(name);
+		}
+
 		for (f in __class.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
@@ -301,7 +314,10 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
 
 					if(superField != null) {
-						Reflect.setProperty(this.superClass, superField, val);
+						if(__allowSetGet)
+							Reflect.setProperty(this.superClass, superField, val);
+						else 
+							Reflect.setField(this.superClass, superField, val);
 						return val;
 					}
 				}
@@ -381,7 +397,7 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 				} else if (Reflect.hasField(this.superClass, name)) {
 					return Reflect.field(this.superClass, name);
 				} else if (this.superClass != null && (this.superClass is CustomClass)) {
-					var superScriptClass:AbstractCustomClass = cast(this.superClass, CustomClass);
+					var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
 					try {
 						return superScriptClass.hget(name);
 					} catch (e:Dynamic) {}
