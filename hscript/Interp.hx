@@ -29,7 +29,6 @@
 package hscript;
 
 import hscript.customclass.CustomClass;
-import hscript.customclass.AbstractCustomClass;
 import hscript.customclass.CustomClassDecl;
 import haxe.CallStack;
 import hscript.utils.UnsafeReflect;
@@ -716,6 +715,9 @@ class Interp {
 		return className;
 	}
 
+	// Workaround for parsing custom classes if made inside of a script file
+	public var localCustomClassImport:Map<String, CustomClassImport> = new Map();
+
 	public function expr(e:Expr):Dynamic {
 		#if hscriptPos
 		curExpr = e;
@@ -723,8 +725,53 @@ class Interp {
 		#end
 		switch (e) {
 			case EClass(name, fields, extend, interfaces):
-				if (customClasses.exists(name))
+				if (_customClassDescriptors.exists(name))
 					error(EAlreadyExistingClass(name));
+
+				var customClassFields:Array<FieldDecl> = [];
+				for(f in fields) {
+					switch (Tools.expr(f)) {
+						case EFunction(args, e, name, ret, isPublic, isStatic, isOverride, isPrivate, isFinal, isInline):
+							var fnAcc:Array<FieldAccess> = [];
+							if(isPublic) fnAcc.push(APublic);
+							if(isStatic) fnAcc.push(AStatic);
+							if(isOverride) fnAcc.push(AOverride);
+
+							var fnd:FunctionDecl = {
+								args: args,
+								body: e,
+								ret: ret
+							};
+							var fd:FieldDecl = {
+								name: name,
+								meta: [],
+								kind: KFunction(fnd),
+								access: fnAcc
+							};
+
+							customClassFields.push(fd);
+						case EVar(n, t, e, isPublic, isStatic, isPrivate, isFinal, isInline):
+							var varAcc:Array<FieldAccess> = [];
+							if(isPublic) varAcc.push(APublic);
+							if(isStatic) varAcc.push(AStatic);
+
+							var vrd:VarDecl = {
+								get: null,
+								set: null,
+								expr: e,
+								type: t
+							};
+							var fd:FieldDecl = {
+								name: n,
+								meta: [],
+								kind: KVar(vrd),
+								access: varAcc
+							};
+
+							customClassFields.push(fd);
+						default:
+					}
+				}
 
 				inline function importVar(thing:String):String {
 					if (thing == null)
@@ -732,7 +779,23 @@ class Interp {
 					final variable:Class<Any> = variables.exists(thing) ? cast variables.get(thing) : null;
 					return variable == null ? thing : Type.getClassName(variable);
 				}
-				customClasses.set(name, new CustomClassHandler(this, name, fields, importVar(extend), [for (i in interfaces) importVar(i)]));
+
+				var extendPath:Null<CType> = extend != null ? CTPath(importVar(extend).split(".")) : null;
+				var interfacesPaths:Array<CType> = [for (i in interfaces) CTPath(importVar(i).split("."))];
+
+				var customClassDecl:CustomClassDecl = {
+					name: name,
+					params: {},
+					meta: [],
+					isPrivate: false,
+					extend: extendPath,
+					implement: interfacesPaths,
+					fields: customClassFields,
+					isExtern: false,
+					imports: localCustomClassImport
+				};
+				registerCustomClass(customClassDecl);
+				//customClasses.set(name, new CustomClassHandler(this, name, fields, importVar(extend), [for (i in interfaces) importVar(i)]));
 			case EImport(c, n):
 				if (!importEnabled)
 					return null;
@@ -783,6 +846,12 @@ class Interp {
 					if (importFailedCallback == null || !importFailedCallback(oldSplitName))
 						error(EInvalidClass(oldClassName));
 				} else {
+					var customImport:CustomClassImport = {
+						name: claVarName,
+						pkg: splitClassName,
+						fullPath: realClassName
+					};
+					localCustomClassImport.set(customImport.name, customImport);
 					if (en != null) {
 						// ENUM!!!!
 						var enumThingy = {};
@@ -1575,7 +1644,7 @@ class Interp {
 						pkg: [for (e in path) e.trim()],
 						fullPath: path.join(".")
 					}
-					imports.set(last, importedClass);
+					imports.set(importedClass.name, importedClass);
 				case DClass(c):
 					var extend = c.extend;
 					if (extend != null) {
