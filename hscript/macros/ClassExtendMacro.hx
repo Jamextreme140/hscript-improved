@@ -255,12 +255,12 @@ class ClassExtendMacro {
 								}
 								else if (__customClass != null) {
 									if(@:privateAccess __customClass.findField(name, true) != null) {
-										${macro return __customClass.callFunction(name, [$a{arguments}])}
+										return __customClass.callFunction(name, [$a{arguments}]);
 									}
 									
 								}
-								else // Fallback, call the original function.
-									return super.$name($a{arguments});
+								// Fallback, call the original function.
+								return super.$name($a{arguments});
 							};
 						} else {
 							overrideExpr = macro {
@@ -277,12 +277,12 @@ class ClassExtendMacro {
 								}
 								else if (__customClass != null) {
 									if(@:privateAccess __customClass.findField(name, true) != null) {
-										${macro __customClass.callFunction(name, [$a{arguments}])}
+										__customClass.callFunction(name, [$a{arguments}]);
+										return;
 									}
-									return;
 								}
-								else // Fallback, call the original function.
-									super.$name($a{arguments});
+								// Fallback, call the original function.
+								super.$name($a{arguments});
 							};
 						}
 
@@ -492,31 +492,39 @@ class ClassExtendMacro {
 
 			var hgetField = if(hasHgetInSuper) {
 				macro {
-					if(__allowSetGet && __custom__variables.exists("get_" + name))
-						return __callGetter(name);
-					if (__custom__variables.exists(name))
-						return __custom__variables.get(name);
+					if(__custom__variables != null) {
+						if(__allowSetGet && __custom__variables.exists("get_" + name))
+							return __callGetter(name);
+						if (__custom__variables.exists(name))
+							return __custom__variables.get(name);
+					}
 					return super.hget(name);
 				}
 			} else {
 				macro {
-					if(__allowSetGet && __custom__variables.exists("get_" + name))
-						return __callGetter(name);
-					if (__custom__variables.exists(name))
-						return __custom__variables.get(name);
+					if(__custom__variables != null) {
+						if(__allowSetGet && __custom__variables.exists("get_" + name))
+							return __callGetter(name);
+						if (__custom__variables.exists(name))
+							return __custom__variables.get(name);
+					}
+					
 					return UnsafeReflect.getProperty(this, name);
 				}
 			}
 
 			var hsetField = if(hasHsetInSuper) {
 				macro {
-					if(__allowSetGet && __custom__variables.exists("set_" + name))
-						return __callSetter(name, val);
-					if (__custom__variables.exists(name)) {
-						__custom__variables.set(name, val);
-						return val;
+					if(__custom__variables != null) {
+						if(__allowSetGet && __custom__variables.exists("set_" + name))
+							return __callSetter(name, val);
+						if (__custom__variables.exists(name)) {
+							__custom__variables.set(name, val);
+							return val;
+						}
 					}
-					if(__real_fields.contains(name)) {
+					
+					if(__real_fields != null && __real_fields.contains(name)) {
 						UnsafeReflect.setProperty(this, name, val);
 						return UnsafeReflect.field(this, name);
 					}
@@ -524,17 +532,20 @@ class ClassExtendMacro {
 				}
 			} else {
 				macro {
-					if(__allowSetGet && __custom__variables.exists("set_" + name))
-						return __callSetter(name, val);
-					if (__custom__variables.exists(name)) {
-						__custom__variables.set(name, val);
-						return val;
+					if(__custom__variables != null) {
+						if(__allowSetGet && __custom__variables.exists("set_" + name))
+							return __callSetter(name, val);
+						if (__custom__variables.exists(name)) {
+							__custom__variables.set(name, val);
+							return val;
+						}
 					}
-					if(__real_fields.contains(name)) {
+					
+					if(__real_fields != null && __real_fields.contains(name)) {
 						UnsafeReflect.setProperty(this, name, val);
 						return UnsafeReflect.field(this, name);
 					}
-					__custom__variables.set(name, val);
+					if(__custom__variables != null) __custom__variables.set(name, val);
 					return val;
 				}
 			}

@@ -289,13 +289,16 @@ class Interp {
 			case EIdent(id):
 				// Make sure setting superclass fields directly works.
 				// Also ensures property functions are accounted for.
-				if (_inCustomClass && _proxy.superClass != null) {
-					if(_proxy.superHasField(id)) {
+				if (_inCustomClass) {
+					if(_proxy.superClass != null && _proxy.superHasField(id)) {
 						var v = expr(e2);
 						Reflect.setProperty(_proxy.superClass, id, v);
 						return v;
 					}
-					
+					else if(_proxy.findVar(id) != null) {
+						var v = expr(e2);
+						_proxy.hset(id, v);
+					}
 				}
 				if (!locals.exists(id)) {
 					if (_hasScriptObject && !varExists(id)) {
@@ -347,6 +350,11 @@ class Interp {
 					switch (Tools.expr(e)) {
 						case EIdent(id0):
 							if (id0 == "this") {
+								if (_proxy.findField(f) != null) {
+									var v = expr(e2);
+									_proxy.hset(f, v);
+									return v;
+								}
 								if (_proxy.superClass != null) {
 									if (_proxy.superHasField(f)) {
 										var v = expr(e2);

@@ -74,6 +74,7 @@ class CustomClass {
 			}
 			superClass = Type.createInstance(c, args);
 			cast(superClass, IHScriptCustomClassBehaviour).__customClass = this;
+			cast(superClass, IHScriptCustomClassBehaviour).__real_fields = Type.getInstanceFields(c);
 		}
 	}
 	// TODO: make this unsafe (use findFunction() once instead of searching for the field every call)
