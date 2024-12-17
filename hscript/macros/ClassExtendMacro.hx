@@ -239,7 +239,7 @@ class ClassExtendMacro {
 
 						var name = f.name;
 
-						var arguments = fun.args == null ? [] : [for(a in fun.args) macro $i{a.name}];
+						var arguments:Array<Expr> = fun.args == null ? [] : [for(a in fun.args) macro $i{a.name}];
 
 						if (returns) {
 							overrideExpr = macro {
@@ -254,10 +254,13 @@ class ClassExtendMacro {
 									}
 								}
 								else if (__customClass != null) {
-									if(__customClass.findField(name) != null)
-										return __customClass.callFunction(name, [$a{arguments}]);
+									if(@:privateAccess __customClass.findField(name, true) != null) {
+										${macro return __customClass.callFunction(name, [$a{arguments}])}
+									}
+									
 								}
-								return super.$name($a{arguments});
+								else // Fallback, call the original function.
+									return super.$name($a{arguments});
 							};
 						} else {
 							overrideExpr = macro {
@@ -273,11 +276,13 @@ class ClassExtendMacro {
 									}
 								}
 								else if (__customClass != null) {
-									if(__customClass.findField(name) != null)
-										__customClass.callFunction(name, [$a{arguments}]);
+									if(@:privateAccess __customClass.findField(name, true) != null) {
+										${macro __customClass.callFunction(name, [$a{arguments}])}
+									}
 									return;
 								}
-								super.$name($a{arguments});
+								else // Fallback, call the original function.
+									super.$name($a{arguments});
 							};
 						}
 

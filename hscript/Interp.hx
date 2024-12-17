@@ -69,7 +69,6 @@ class RedeclaredVar {
 }
 
 @:access(hscript.customclass.CustomClass)
-@:access(hscript.customclass.AbstractCustomClass)
 @:analyzer(optimize, local_dce, fusion, user_var_fusion)
 class Interp {
 	private static var _customClassDescriptors:Map<String, CustomClassDecl> = new Map<String, CustomClassDecl>();
@@ -268,6 +267,14 @@ class Interp {
 	}
 
 	public function setVar(name:String, v:Dynamic):Void {
+		if(_inCustomClass && _proxy.superClass != null) {
+			if(_proxy.superHasField(name)) {
+				Reflect.setProperty(_proxy.superClass, name, v);
+			}
+		}
+
+		// Fallback to setting in local scope.
+
 		if (allowStaticVariables && staticVariables.exists(name))
 			staticVariables.set(name, v);
 		else if (allowPublicVariables && publicVariables.exists(name))
@@ -280,9 +287,15 @@ class Interp {
 		var v = expr(e2);
 		switch (Tools.expr(e1)) {
 			case EIdent(id):
-				if (_inCustomClass && _proxy.superClass != null && Reflect.hasField(_proxy.superClass, id)) {
-					Reflect.setProperty(_proxy.superClass, id, v);
-					return v;
+				// Make sure setting superclass fields directly works.
+				// Also ensures property functions are accounted for.
+				if (_inCustomClass && _proxy.superClass != null) {
+					if(_proxy.superHasField(id)) {
+						var v = expr(e2);
+						Reflect.setProperty(_proxy.superClass, id, v);
+						return v;
+					}
+					
 				}
 				if (!locals.exists(id)) {
 					if (_hasScriptObject && !varExists(id)) {
@@ -330,6 +343,23 @@ class Interp {
 				}
 			// TODO
 			case EField(e, f, s):
+				if(_inCustomClass) {
+					switch (Tools.expr(e)) {
+						case EIdent(id0):
+							if (id0 == "this") {
+								if (_proxy.superClass != null) {
+									if (_proxy.superHasField(f)) {
+										var v = expr(e2);
+										Reflect.setProperty(_proxy.superClass, f, v);
+										return v;
+									}
+								}
+							}
+						default:
+							// Do nothing
+					}
+				}
+				
 				var obj = expr(e);
 				if (s && obj == null)
 					return null;
@@ -574,6 +604,7 @@ class Interp {
 
 		// Custom Class
 		if (_inCustomClass) {
+			_nextCallObject = null;
 			if (id == "super") {
 				if (_proxy.superClass == null) {
 					return _proxy.superConstructor;
@@ -590,27 +621,28 @@ class Interp {
 
 		if (variables.exists(id))
 			return variables.get(id);
-		else {
-			// Custom Class
-			if (_inCustomClass) {
-				if (_proxy.findFunction(id) != null) {
+
+		// TODO: Allow access to custom classes for calling static functions.
+		// Custom Class
+		if (_inCustomClass) {
+			// We are calling a LOCAL function from the same module.
+			if (_proxy.findFunction(id, true) != null) {
+				_nextCallObject = _proxy;
+				return _proxy.resolveField(id);
+			} else if (_proxy.superHasField(id)) {
+				_nextCallObject = _proxy.superClass;
+				return Reflect.getProperty(_proxy.superClass, id);
+			} else {
+				try {
+					var r = _proxy.resolveField(id);
 					_nextCallObject = _proxy;
-					return _proxy.resolveField(id);
-				} else if (_proxy.superClass != null
-					&& (Reflect.hasField(_proxy.superClass, id) || Reflect.getProperty(_proxy.superClass, id) != null)) {
-					_nextCallObject = _proxy.superClass;
-					return Reflect.getProperty(_proxy.superClass, id);
-				} else {
-					try {
-						var r = _proxy.resolveField(id);
-						_nextCallObject = _proxy;
-						return r;
-					} catch (e:Dynamic) {
-						error(EUnknownVariable(id));
-					}
+					return r;
+				} catch (e:Dynamic) {
+					error(EUnknownVariable(id));
 				}
 			}
 		}
+		
 		if (publicVariables.exists(id))
 			return publicVariables.get(id);
 		if (staticVariables.exists(id))
@@ -619,7 +651,7 @@ class Interp {
 			return customClasses.get(id);
 
 		if(_customClassDescriptors.exists(id))
-			return _customClassDescriptors.get(id).name;
+			return _customClassDescriptors.get(id);
 
 		if (_hasScriptObject) {
 			// search in object
@@ -890,6 +922,8 @@ class Interp {
 						hasOpt = true;
 					else
 						minParams++;
+
+				// This CREATES a new function in memory, that we call later.
 				var f = function(args:Array<Dynamic>) {
 					if (me.locals == null || me.variables == null)
 						return null;
@@ -1268,6 +1302,8 @@ class Interp {
 				error(EUnknownVariable(f));
 			}
 			*/
+			if (proxy.__interp.variables.exists(f)) 
+				return proxy.__interp.variables.get(f);
 			try {
 				return proxy.hget(f);
 			} catch (e:Dynamic) {
@@ -1317,25 +1353,22 @@ class Interp {
 
 		if (o is CustomClass) {
 			var proxy:CustomClass = cast o;
-			/*
 			if (proxy.__interp.variables.exists(f)) {
 				proxy.__interp.variables.set(f, v);
-			} 
-			else if (proxy.superClass != null && (Reflect.hasField(proxy.superClass, f))) {
-				if(isBypassAccessor)
+			} else if (proxy.superClass != null && (Reflect.hasField(proxy.superClass, f))) {
+				if (isBypassAccessor)
+					Reflect.setField(proxy.superClass, f, v);
+				else
+					Reflect.setProperty(proxy.superClass, f, v);
+			} else if (proxy.superClass != null && Type.getInstanceFields(Type.getClass(_proxy.superClass)).contains(f)) {
+				if (isBypassAccessor)
 					Reflect.setField(proxy.superClass, f, v);
 				else
 					Reflect.setProperty(proxy.superClass, f, v);
 			} else {
 				error(EUnknownVariable(f));
 			}
-			*/
-			try {
-				proxy.hset(f, v);
-			}
-			catch(e) {
-				error(EUnknownVariable(f));
-			}
+			
 			return v;
 		}
 
@@ -1373,7 +1406,8 @@ class Interp {
 		// Custom logic to handle super calls to prevent infinite recursion
 		if(_inCustomClass && o == _proxy.superClass) {
 			// Force call super function.
-			return call(o, Reflect.field(_proxy.superClass, '_HX_SUPER__${f}'), args);
+			if(o == _proxy.superClass)
+				return call(o, Reflect.field(_proxy.superClass, '_HX_SUPER__${f}'), args);
 		}
 		else if (o is CustomClass) {
 			_nextCallObject = null;
@@ -1406,13 +1440,69 @@ class Interp {
 		if (_inCustomClass) {
 			if (o == null && _nextCallObject != null) {
 				o = _nextCallObject;
+				
+			}
+			if(f == null) {
+				error(EInvalidAccess(f));
+			}
+			if(o == _proxy) {
+				// If we are calling this.fn(), special handling is needed to prevent the local scope from being destroyed.
+				// By checking `o == _proxy`, we handle BOTH fn() and this.fn().
+				// super.fn() is exempt since it is not scripted.
+				return callThis(f, args);
+			}
+			try {
 				var r = Reflect.callMethod(o, f, args);
 				_nextCallObject = null;
 				return r;
 			}
+			catch(e) {
+				error(ECustom('Script threw an exception: \n${f}'));
+				_nextCallObject = null;
+				return null;
+			}
+			
 		}
 
 		return UnsafeReflect.callMethodSafe(o, f, args);
+	}
+
+	/**
+	 * Call a given function on the current proxy with the given arguments.
+	 * Ensures that the local scope is not destroyed.
+	 * @param fun The function to call.
+	 * @param args The arguments to apply to that function.
+	 * @return The result of the function call.
+	 */
+	function callThis(fun:Dynamic, args:Array<Dynamic>):Dynamic {
+		// If we are calling this.fn(), special handling is needed to prevent the local scope from being destroyed.
+		// Store the local scope.
+		var capturedLocals = this.duplicate(locals);
+		var capturedDeclared = this.declared;
+		var capturedDepth = this.depth;
+
+		this.depth++;
+
+		// Call the function.
+		try {
+			var result = Reflect.callMethod(_proxy, fun, args);
+
+			// Restore the local scope.
+			this.locals = capturedLocals;
+			this.declared = capturedDeclared;
+			this.depth = capturedDepth;
+
+			return result;
+		} catch (e) {
+			error(ECustom('Script threw an exception: \n${fun}'));
+
+			// Restore the local scope.
+			this.locals = capturedLocals;
+			this.declared = capturedDeclared;
+			this.depth = capturedDepth;
+
+			return null;
+		}
 	}
 
 	function cnew(cl:String, args:Array<Dynamic>):Dynamic {
@@ -1430,7 +1520,7 @@ class Interp {
 			}
 
 			if (_proxy.__class.imports != null && _proxy.__class.imports.exists(cl)) {
-				var importedClass = _proxy.__class.imports.get(cl).join(".");
+				var importedClass = _proxy.__class.imports.get(cl).fullPath;
 				if (_customClassDescriptors.exists(importedClass)) {
 					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(importedClass), args);
 					return proxy;
@@ -1462,7 +1552,7 @@ class Interp {
 
 	public function registerModule(module:Array<ModuleDecl>) {
 		var pkg:Array<String> = null;
-		var imports:Map<String, Array<String>> = [];
+		var imports:Map<String, CustomClassImport> = [];
 		for (decl in module) {
 			switch (decl) {
 				case DPackage(path):
@@ -1471,7 +1561,13 @@ class Interp {
 					if (importBlocklist.contains(path.join(".")))
 						continue;
 					var last = path[path.length - 1];
-					imports.set(last, path);
+
+					var importedClass:CustomClassImport = {
+						name: last,
+						pkg: [for (e in path) e.trim()],
+						fullPath: path.join(".")
+					}
+					imports.set(last, importedClass);
 				case DClass(c):
 					var extend = c.extend;
 					if (extend != null) {
@@ -1479,7 +1575,7 @@ class Interp {
 						if (imports.exists(superClassPath)) {
 							switch (extend) {
 								case CTPath(_, params):
-									extend = CTPath(imports.get(superClassPath), params);
+									extend = CTPath(imports.get(superClassPath).pkg, params);
 								case _:
 							}
 						}
@@ -1498,6 +1594,7 @@ class Interp {
 					};
 					registerCustomClass(classDecl);
 				case DTypedef(_):
+					//TODO: maybe make this work :3
 			}
 		}
 	}

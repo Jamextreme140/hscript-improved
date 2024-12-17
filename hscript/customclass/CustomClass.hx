@@ -8,6 +8,11 @@ import hscript.Expr.FieldDecl;
 using Lambda;
 using StringTools;
 
+/**
+ * Provides handlers for custom classes.
+ * Based on Polymod Hscript class system
+ * @see https://github.com/larsiusprime/polymod/tree/master/polymod/hscript/_internal
+ */
 class CustomClass {
 	public var __interp:Interp;
 
@@ -88,15 +93,21 @@ class CustomClass {
 				} else if (a.value != null) {
 					value = __interp.expr(a.value);
 				}
-
+				// NOTE: We assign these as variables rather than locals because those get wiped when we enter the function.
 				if (__interp.variables.exists(a.name)) {
 					previousValues.set(a.name, __interp.variables.get(a.name));
 				}
 				__interp.variables.set(a.name, value);
 				i++;
 			}
-
-			r = __interp.execute(fn.body);
+			try{
+				r = __interp.execute(fn.body);
+			}
+			catch(e:hscript.Expr.Error){
+				// A script error occurred while executing the script function.
+				// Purge the function from the cache so it is not called again.
+				purgeFunction(name);
+			}
 
 			for (a in fn.args) {
 				if (previousValues.exists(a.name)) {
@@ -127,11 +138,11 @@ class CustomClass {
 		return r;
 	}
 
-	private function findField(name:String):FieldDecl {
+	private function findField(name:String, cache:Bool = false):FieldDecl {
 		if (_cachedFieldDecls != null && _cachedFieldDecls.exists(name)) {
 			return _cachedFieldDecls.get(name);
 		}
-
+		if(cache) return null;
 		for (f in __class.fields) {
 			if (f.name == name) {
 				return f;
@@ -140,11 +151,11 @@ class CustomClass {
 		return null;
 	}
 
-	private function findFunction(name:String):FunctionDecl {
+	private function findFunction(name:String, cache:Bool = false):FunctionDecl {
 		if (_cachedFunctionDecls != null && _cachedFunctionDecls.exists(name)) {
 			return _cachedFunctionDecls.get(name);
 		}
-
+		if(cache) return null;
 		for (f in __class.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
@@ -158,12 +169,12 @@ class CustomClass {
 		return null;
 	}
 
-	private function findVar(name:String):VarDecl {
+	private function findVar(name:String, cache:Bool = false):VarDecl {
 		if (_cachedVarDecls != null && _cachedVarDecls.exists(name))
 		{
 			return _cachedVarDecls.get(name);
 		}
-
+		if(cache) return null;
 		for (f in __class.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
@@ -175,6 +186,30 @@ class CustomClass {
 		}
 
 		return null;
+	}
+
+	var __superClassFieldList:Array<String> = null;
+
+	public function superHasField(name:String) {
+		if(superClass == null) return false;
+
+		// Reflect.hasField(this, name) is REALLY expensive so we use a cache.
+		if(__superClassFieldList == null) {
+			__superClassFieldList = Reflect.fields(superClass).concat(Type.getInstanceFields(Type.getClass(superClass)));
+		}
+
+		return __superClassFieldList.indexOf(name) != -1;
+	}
+
+	/**
+	 * Remove a function from the cache.
+	 * This is useful when a function is broken and needs to be skipped.
+	 * @param name The name of the function to remove from the cache.
+	 */
+	private function purgeFunction(name:String):Void {
+		if (_cachedFunctionDecls != null) {
+			_cachedFunctionDecls.remove(name);
+		}
 	}
 
 	private var _cachedFieldDecls:Map<String, FieldDecl> = null;
@@ -205,7 +240,7 @@ class CustomClass {
 		// TODO: implement Alias imports
 		var i:Int = 0;
 		for(_import in __class.imports) {
-			var importedClass = _import.join(".");
+			var importedClass = _import.fullPath;
 			if(Interp.customClassDescriptorExist(importedClass))
 				continue;
 			#if hscriptPos
@@ -236,29 +271,21 @@ class CustomClass {
 				if (this.findVar(name) != null) {
 					this.__interp.variables.set(name, val);
 					return val;
-				} else if (this.superClass != null) {
-					if (Reflect.hasField(this.superClass, name)) {
-						Reflect.setProperty(this.superClass, name, val);
-						return val;
-					} else if ((this.superClass is CustomClass)) {
-						var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
-						try {
-							return superScriptClass.hset(name, val);
-						} catch (e:Dynamic) {}
-					} else {
-						var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
-
-						if (superField != null) {
-							Reflect.setProperty(this.superClass, superField, val);
-						}
-					}
-				} 
+				} else if (Reflect.hasField(this.superClass, name)) {
+					Reflect.setProperty(this.superClass, name, val);
+					return val;
+				} else if (this.superClass != null && this.superClass is CustomClass) {
+					var superCustomClass:CustomClass = cast(this.superClass, CustomClass);
+					try {
+						return superCustomClass.hset(name, val);
+					} catch (e:Dynamic) {}
+				}
 		}
 
 		if (this.superClass == null) {
-			throw "field '" + name + "' does not exist in script class '" + this.className + "'";
+			throw "field '" + name + "' does not exist in custom class '" + this.className + "'";
 		} else {
-			throw "field '" + name + "' does not exist in script class '" + this.className + "' or super class '"
+			throw "field '" + name + "' does not exist in custom class '" + this.className + "' or super class '"
 				+ Type.getClassName(Type.getClass(this.superClass)) + "'";
 		}
 	}
@@ -310,30 +337,38 @@ class CustomClass {
 						varValue = this.__interp.variables.get(name);
 					}
 					return varValue;
-				} else if (this.superClass != null) {
-					if (Reflect.isFunction(Reflect.getProperty(this.superClass, name))) {
-						return Reflect.getProperty(this.superClass, name);
-					} else if (Reflect.hasField(this.superClass, name)) {
+				} else if (this.superClass == null) {
+					throw "field '" + name + "' does not exist in custom class '" + this.className + "'";
+				} else if (Type.getClass(this.superClass) == null) {
+					// Anonymous structure
+					if (Reflect.hasField(this.superClass, name)) {
 						return Reflect.field(this.superClass, name);
-					} else if ((this.superClass is CustomClass)) {
-						var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
-						try {
-							return superScriptClass.hget(name);
-						} catch (e:Dynamic) {}
 					} else {
-						var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
-
-						if (superField != null) {
-							return Reflect.getProperty(this.superClass, superField);
-						}
+						throw "field '" + name + "' does not exist in custom class '" + this.className + "' or super class '"
+							+ Type.getClassName(Type.getClass(this.superClass)) + "'";
 					}
-				} 
+				} else if (this.superClass is CustomClass) {
+					// PolymodScriptClass
+					var superCustomClass:CustomClass = cast(this.superClass, CustomClass);
+					try {
+						return superCustomClass.hget(name);
+					} catch (e:Dynamic) {}
+				} else {
+					// Class object
+					var fields = Type.getInstanceFields(Type.getClass(this.superClass));
+					if (fields.contains(name) || fields.contains('get_$name')) {
+						return Reflect.getProperty(this.superClass, name);
+					} else {
+						throw "field '" + name + "' does not exist in script class '" + this.className + "' or super class '"
+							+ Type.getClassName(Type.getClass(this.superClass)) + "'";
+					}
+				}
 		}
 
 		if (this.superClass == null) {
-			throw "field '" + name + "' does not exist in script class '" + this.className + "'";
+			throw "field '" + name + "' does not exist in custom class '" + this.className + "'";
 		} else {
-			throw "field '" + name + "' does not exist in script class '" + this.className + "' or super class '"
+			throw "field '" + name + "' does not exist in custom class '" + this.className + "' or super class '"
 				+ Type.getClassName(Type.getClass(this.superClass)) + "'";
 		}
 	}
