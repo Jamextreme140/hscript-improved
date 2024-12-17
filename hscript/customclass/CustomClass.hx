@@ -8,14 +8,10 @@ import hscript.Expr.FieldDecl;
 using Lambda;
 using StringTools;
 
-class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCustomBehaviour{
+class CustomClass {
 	public var __interp:Interp;
-	public var __custom__variables:Map<String, Dynamic>;
-	public var __allowSetGet:Bool;
-	public var __real_fields:Array<String>;
-	public var __class__fields:Array<String>;
 
-	public var superClass:IHScriptCustomClassBehaviour = null;
+	public var superClass:Dynamic = null;
 	public var superConstructor(default, null):Dynamic;
 
 	public var className(get, null):String;
@@ -35,8 +31,8 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 		this.__class = __class;
 		this.__interp = new Interp(this);
 		buildImports();
-		buildCaches();
 		buildSuperConstructor();
+		buildCaches();
 
 		if (findField("new") != null) {
 			callFunction("new", args);
@@ -72,43 +68,11 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 				@:privateAccess __interp.error(ECustom("could not resolve super class: " + extendString));
 			}
 			superClass = Type.createInstance(c, args);
-			setCustomClass();
+			cast(superClass, IHScriptCustomClassBehaviour).__customClass = this;
 		}
 	}
-
-	private function setCustomClass() {
-		var disallowCopy = Type.getInstanceFields(Type.getClass(superClass));
-
-		superClass.__interp = this.__interp;
-		superClass.__custom__variables = this.__interp.variables;
-
-		superClass.__real_fields = disallowCopy; // Predefined class fields
-
-		var comparisonMap:Map<String, Dynamic> = [];
-		for (key => value in this.__interp.variables) {
-			comparisonMap.set(key, value);
-		}
-
-		// get only variables that were not set before
-		var classVariables = [
-			for(key => value in this.__interp.variables)
-				if(!comparisonMap.exists(key) || comparisonMap[key] != value)
-					key => value
-		];
-
-		superClass.__class__fields = [for (key => value in classVariables) key];
-
-		superClass.__allowSetGet = false;
-		for(variable => value in this.__interp.variables) {
-			if(variable == "this" || variable == "super" || variable == "new") continue;
-
-			if(variable.startsWith("set_") || variable.startsWith("get_")) {
-				superClass.__allowSetGet = true;
-			}
-		}
-	}
-
-	public function callFunction(name:String, args:Array<Dynamic> = null) {
+	// TODO: make this unsafe (use findFunction() once instead of searching for the field every call)
+	public function callFunction(name:String, args:Array<Dynamic> = null):Dynamic {
 		var field = findField(name);
 		var r:Dynamic = null;
 
@@ -227,42 +191,12 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 			switch (f.kind) {
 				case KFunction(fn):
 					_cachedFunctionDecls.set(f.name, fn);
-					if(fn.body != null) {
-						var isOverride:Bool = f.access.find((f:FieldAccess) -> return f == AOverride) != null;
-						#if hscriptPos
-						var e:Expr = {
-							e: ExprDef.EFunction(fn.args, fn.body, f.name, fn.ret, false, false, isOverride, false, false, false),
-							pmin: 0,
-							pmax: 0,
-							origin: "",
-							line: 0
-						};
-						#else
-						var e = Expr.EFunction(fn.args, fn.body, f.name, fn.ret, false, false, isOverride, false, false, false);
-						#end
-						this.__interp.expr(e);
-					}
 				case KVar(v):
 					_cachedVarDecls.set(f.name, v);
-					#if hscriptPos
-					var e:Expr = {
-						e: ExprDef.EVar(f.name, v.type, v.expr, false, false, false, false, false),
-						pmin: 0,
-						pmax: 0,
-						origin: "",
-						line: 0
-					};
-					#else
-					var e = Expr.EVar(f.name, v.type, v.expr, false, false, false, false, false);
-					#end
-					this.__interp.expr(e);
-					//Unnecessary since passing the expression sets the variable automatically
-					/*
 					if (v.expr != null) {
 						var varValue = this.__interp.expr(v.expr);
 						this.__interp.variables.set(f.name, varValue);
 					}
-					*/
 			}
 		}
 	}
@@ -302,25 +236,23 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 				if (this.findVar(name) != null) {
 					this.__interp.variables.set(name, val);
 					return val;
-				} else if (Reflect.hasField(this.superClass, name)) {
-					Reflect.setProperty(this.superClass, name, val);
-					return val;
-				} else if (this.superClass != null && (this.superClass is CustomClass)) {
-					var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
-					try {
-						return superScriptClass.hset(name, val);
-					} catch (e:Dynamic) {}
-				} else {
-					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
-
-					if(superField != null) {
-						if(__allowSetGet)
-							Reflect.setProperty(this.superClass, superField, val);
-						else 
-							Reflect.setField(this.superClass, superField, val);
+				} else if (this.superClass != null) {
+					if (Reflect.hasField(this.superClass, name)) {
+						Reflect.setProperty(this.superClass, name, val);
 						return val;
+					} else if ((this.superClass is CustomClass)) {
+						var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
+						try {
+							return superScriptClass.hset(name, val);
+						} catch (e:Dynamic) {}
+					} else {
+						var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
+
+						if (superField != null) {
+							Reflect.setProperty(this.superClass, superField, val);
+						}
 					}
-				}
+				} 
 		}
 
 		if (this.superClass == null) {
@@ -329,20 +261,6 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 			throw "field '" + name + "' does not exist in script class '" + this.className + "' or super class '"
 				+ Type.getClassName(Type.getClass(this.superClass)) + "'";
 		}
-	}
-
-	public function __callGetter(name:String):Dynamic {
-		__allowSetGet = false;
-		var v = __custom__variables.get("get_" + name)();
-		__allowSetGet = true;
-		return v;
-	}
-
-	public function __callSetter(name:String, val:Dynamic):Dynamic {
-		__allowSetGet = false;
-		var v = __custom__variables.get("set_" + name)(val);
-		__allowSetGet = true;
-		return v;
 	}
 
 	private function resolveField(name:String):Dynamic {
@@ -392,22 +310,24 @@ class CustomClass implements IHScriptCustomClassBehaviour implements IHScriptCus
 						varValue = this.__interp.variables.get(name);
 					}
 					return varValue;
-				} else if (Reflect.isFunction(Reflect.getProperty(this.superClass, name))) {
-					return Reflect.getProperty(this.superClass, name);
-				} else if (Reflect.hasField(this.superClass, name)) {
-					return Reflect.field(this.superClass, name);
-				} else if (this.superClass != null && (this.superClass is CustomClass)) {
-					var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
-					try {
-						return superScriptClass.hget(name);
-					} catch (e:Dynamic) {}
-				} else {
-					var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
+				} else if (this.superClass != null) {
+					if (Reflect.isFunction(Reflect.getProperty(this.superClass, name))) {
+						return Reflect.getProperty(this.superClass, name);
+					} else if (Reflect.hasField(this.superClass, name)) {
+						return Reflect.field(this.superClass, name);
+					} else if ((this.superClass is CustomClass)) {
+						var superScriptClass:CustomClass = cast(this.superClass, CustomClass);
+						try {
+							return superScriptClass.hget(name);
+						} catch (e:Dynamic) {}
+					} else {
+						var superField = Type.getInstanceFields(Type.getClass(this.superClass)).find((f) -> return f == name);
 
-					if(superField != null) {
-						return Reflect.getProperty(this.superClass, superField);
+						if (superField != null) {
+							return Reflect.getProperty(this.superClass, superField);
+						}
 					}
-				}
+				} 
 		}
 
 		if (this.superClass == null) {

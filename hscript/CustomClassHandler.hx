@@ -1,5 +1,6 @@
 package hscript;
 
+import hscript.customclass.CustomClass;
 import hscript.Interp.DeclaredVar;
 import hscript.utils.UnsafeReflect;
 using StringTools;
@@ -155,6 +156,7 @@ class CustomClassHandler implements IHScriptCustomConstructor {
 
 class TemplateClass implements IHScriptCustomClassBehaviour implements IHScriptCustomBehaviour {
 	public var __interp:Interp;
+	public var __customClass:CustomClass;
 	public var __allowSetGet:Bool = true;
 	public var __custom__variables:Map<String, Dynamic>;
 	public var __real_fields:Array<String>;

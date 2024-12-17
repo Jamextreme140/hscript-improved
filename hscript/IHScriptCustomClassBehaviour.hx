@@ -1,7 +1,10 @@
 package hscript;
 
+import hscript.customclass.CustomClass;
+
 interface IHScriptCustomClassBehaviour {
 	public var __interp:Interp;
+	public var __customClass:CustomClass;
 	public var __custom__variables:Map<String, Dynamic>;
 	public var __allowSetGet:Bool;
 	public var __real_fields:Array<String>;

@@ -38,6 +38,7 @@ import hscript.Expr;
 import haxe.Constraints.IMap;
 
 using StringTools;
+using Lambda;
 
 private enum Stop {
 	SBreak;
@@ -1255,14 +1256,21 @@ class Interp {
 
 		if (o is CustomClass) {
 			var proxy:CustomClass = cast o;
+			/*
 			if (proxy.__interp.variables.exists(f)) {
 				return proxy.__interp.variables.get(f);
-			} else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
-				return Reflect.getProperty(proxy.superClass, f);
+			} else if (proxy.superClass != null && (Reflect.hasField(proxy.superClass, f))) {
+				return isBypassAccessor ? Reflect.field(proxy.superClass, f) : Reflect.getProperty(proxy.superClass, f);
 			} else {
 				try {
 					return proxy.hget(f);
 				} catch (e:Dynamic) {}
+				error(EUnknownVariable(f));
+			}
+			*/
+			try {
+				return proxy.hget(f);
+			} catch (e:Dynamic) {
 				error(EUnknownVariable(f));
 			}
 		}
@@ -1309,11 +1317,23 @@ class Interp {
 
 		if (o is CustomClass) {
 			var proxy:CustomClass = cast o;
+			/*
 			if (proxy.__interp.variables.exists(f)) {
 				proxy.__interp.variables.set(f, v);
-			} else if (proxy.superClass != null && Reflect.hasField(proxy.superClass, f)) {
-				Reflect.setProperty(proxy.superClass, f, v);
+			} 
+			else if (proxy.superClass != null && (Reflect.hasField(proxy.superClass, f))) {
+				if(isBypassAccessor)
+					Reflect.setField(proxy.superClass, f, v);
+				else
+					Reflect.setProperty(proxy.superClass, f, v);
 			} else {
+				error(EUnknownVariable(f));
+			}
+			*/
+			try {
+				proxy.hset(f, v);
+			}
+			catch(e) {
 				error(EUnknownVariable(f));
 			}
 			return v;
@@ -1353,9 +1373,9 @@ class Interp {
 		// Custom logic to handle super calls to prevent infinite recursion
 		if(_inCustomClass && o == _proxy.superClass) {
 			// Force call super function.
-			return fcall(o, '_HX_SUPER__${f}', args);
+			return call(o, Reflect.field(_proxy.superClass, '_HX_SUPER__${f}'), args);
 		}
-		if (o is CustomClass) {
+		else if (o is CustomClass) {
 			_nextCallObject = null;
 			var proxy:CustomClass = cast o;
 			return proxy.callFunction(f, args);

@@ -253,6 +253,10 @@ class ClassExtendMacro {
 										}
 									}
 								}
+								else if (__customClass != null) {
+									if(__customClass.findField(name) != null)
+										return __customClass.callFunction(name, [$a{arguments}]);
+								}
 								return super.$name($a{arguments});
 							};
 						} else {
@@ -267,6 +271,11 @@ class ClassExtendMacro {
 											return;
 										}
 									}
+								}
+								else if (__customClass != null) {
+									if(__customClass.findField(name) != null)
+										__customClass.callFunction(name, [$a{arguments}]);
+									return;
 								}
 								super.$name($a{arguments});
 							};
@@ -344,6 +353,13 @@ class ClassExtendMacro {
 				name: "__interp",
 				pos: Context.currentPos(),
 				kind: FVar(macro: hscript.Interp),
+				access: [APublic]
+			});
+
+			shadowClass.fields.push({
+				name: "__customClass",
+				pos: Context.currentPos(),
+				kind: FVar(macro: hscript.customclass.CustomClass),
 				access: [APublic]
 			});
 
