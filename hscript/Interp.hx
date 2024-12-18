@@ -717,6 +717,7 @@ class Interp {
 
 	// Workaround for parsing custom classes if made inside of a script file
 	public var localCustomClassImport:Map<String, CustomClassImport> = new Map();
+	public var localParsedClasses:Array<String> = [];
 
 	public function expr(e:Expr):Dynamic {
 		#if hscriptPos
@@ -725,7 +726,7 @@ class Interp {
 		#end
 		switch (e) {
 			case EClass(name, fields, extend, interfaces):
-				if (_customClassDescriptors.exists(name))
+				if (localParsedClasses.contains(name))
 					error(EAlreadyExistingClass(name));
 
 				var customClassFields:Array<FieldDecl> = [];
@@ -795,6 +796,7 @@ class Interp {
 					imports: localCustomClassImport
 				};
 				registerCustomClass(customClassDecl);
+				localParsedClasses.push(customClassDecl.name);
 				//customClasses.set(name, new CustomClassHandler(this, name, fields, importVar(extend), [for (i in interfaces) importVar(i)]));
 			case EImport(c, n):
 				if (!importEnabled)
@@ -805,6 +807,13 @@ class Interp {
 				var toSetName = n != null ? n : claVarName;
 				var oldClassName = realClassName;
 				var oldSplitName = splitClassName.copy();
+
+				var customImport:CustomClassImport = {
+					name: claVarName,
+					pkg: splitClassName,
+					fullPath: realClassName
+				};
+				localCustomClassImport.set(customImport.name, customImport);
 
 				if (variables.exists(toSetName)) // class is already imported
 					return null;
@@ -846,12 +855,6 @@ class Interp {
 					if (importFailedCallback == null || !importFailedCallback(oldSplitName))
 						error(EInvalidClass(oldClassName));
 				} else {
-					var customImport:CustomClassImport = {
-						name: claVarName,
-						pkg: splitClassName,
-						fullPath: realClassName
-					};
-					localCustomClassImport.set(customImport.name, customImport);
 					if (en != null) {
 						// ENUM!!!!
 						var enumThingy = {};
