@@ -297,6 +297,13 @@ class Interp {
 					else if(_proxy.findVar(id) != null) {
 						var v = expr(e2);
 						_proxy.hset(id, v);
+						return v;
+					}
+					else if(_proxy.superClass == null && _proxy.__class.extend != null){
+						// Caches the declaration to set it once superClass is created
+						var v = expr(e2);
+						_proxy.cacheSuperField(id, v);
+						return v;
 					}
 				}
 				if (!locals.exists(id)) {
@@ -360,6 +367,12 @@ class Interp {
 										Reflect.setProperty(_proxy.superClass, f, v);
 										return v;
 									}
+								}
+								else if(_proxy.superClass == null && _proxy.__class.extend != null){
+									// Caches the declaration to set it once superClass is created
+									var v = expr(e2);
+									_proxy.cacheSuperField(f, v);
+									return v;
 								}
 							}
 						default:

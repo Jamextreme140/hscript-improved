@@ -352,6 +352,13 @@ class ClassExtendMacro {
 			Utils.setupMetas(shadowClass, imports);
 			Utils.processImport(imports, "hscript.utils.UnsafeReflect", "UnsafeReflect");
 
+			shadowClass.fields.push({
+				name: "__cachedFields",
+				pos: Context.currentPos(),
+				kind: FVar(macro: Map<String, Dynamic>, macro []),
+				access: [APublic, AStatic]
+			});
+			
 			// Adding hscript getters and setters
 
 			shadowClass.fields.push({
@@ -395,6 +402,29 @@ class ClassExtendMacro {
 				kind: FVar(macro: Array<String>),
 				access: [APublic]
 			});
+
+			/*
+			// Adding a constructor that runs Cached fields
+			var superCallArgs:Array<Expr> = [for (arg in superConstArgs) macro $i{arg.name}];
+			shadowClass.fields.push({
+				name: "new",
+				access: [APublic],
+				pos: Context.currentPos(),
+				kind: FFun({
+					args: superConstArgs,
+					expr: macro {
+						if(__cachedFields != null) {
+							for(k => v in __cachedFields) {
+								Reflect.setProperty(this, k, v);
+							}
+							__cachedFields = null;
+						}
+						// Call the super constructor with appropriate args
+						super($a{superCallArgs});
+					}
+				})
+			});
+			*/
 
 			shadowClass.fields.push({
 				name: "__callGetter",

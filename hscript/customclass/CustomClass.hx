@@ -22,6 +22,7 @@ class CustomClass {
 	public var className(get, null):String;
 
 	private var __class:CustomClassDecl;
+	private var _cachedSuperFields:Null<Map<String, Dynamic>> = null;
 
 	private function get_className():String {
 		var name = "";
@@ -32,11 +33,13 @@ class CustomClass {
 		return name;
 	}
 
-	public function new(__class:CustomClassDecl, args:Array<Dynamic>) {
+	public function new(__class:CustomClassDecl, args:Array<Dynamic>, ?extendFieldDecl:Map<String, Dynamic>) {
 		this.__class = __class;
 		this.__interp = new Interp(this);
 		buildImports();
 		buildSuperConstructor();
+		if(extendFieldDecl != null)
+			_cachedSuperFields = extendFieldDecl;
 		buildCaches();
 
 		if (findField("new") != null) {
@@ -65,16 +68,28 @@ class CustomClass {
 		}
 		var classDescriptor = Interp.findCustomClassDescriptor(extendString);
 		if (classDescriptor != null) {
-			var abstractSuperClass:CustomClass = new CustomClass(classDescriptor, args);
+			var abstractSuperClass:CustomClass = new CustomClass(classDescriptor, args, _cachedSuperFields);
 			superClass = abstractSuperClass;
 		} else {
 			var c = Type.resolveClass('${extendString}_HSX');
 			if (c == null) {
 				@:privateAccess __interp.error(ECustom("could not resolve super class: " + extendString));
 			}
+			if(_cachedSuperFields != null) {
+				Reflect.setField(c, "__cachedFields", _cachedSuperFields); // Static field
+			}
+			
 			superClass = Type.createInstance(c, args);
-			cast(superClass, IHScriptCustomClassBehaviour).__customClass = this;
-			cast(superClass, IHScriptCustomClassBehaviour).__real_fields = Type.getInstanceFields(c);
+			/*
+			if(_cachedSuperFields != null) {
+				for (f => v in _cachedSuperFields) {
+					trace('Setting to ${extendString} ${f}: ${v}');
+					superClass.hset(f, v);
+				}
+			}
+			*/
+			superClass.__customClass = this;
+			superClass.__real_fields = Type.getInstanceFields(c);
 		}
 	}
 	// TODO: make this unsafe (use findFunction() once instead of searching for the field every call)
@@ -221,6 +236,7 @@ class CustomClass {
 		_cachedFieldDecls = [];
 		_cachedFunctionDecls = [];
 		_cachedVarDecls = [];
+		if(_cachedSuperFields == null) _cachedSuperFields = [];
 
 		for (f in __class.fields) {
 			_cachedFieldDecls.set(f.name, f);
@@ -235,6 +251,15 @@ class CustomClass {
 					}
 			}
 		}
+
+		if(!_cachedSuperFields.empty()) {
+			for (f => v in _cachedSuperFields) {
+				trace('Setting in ${className} ${f}: ${v}');
+				this.hset(f, v);
+			}
+			_cachedSuperFields.clear();
+		}
+		
 	}
 
 	private function buildImports() {
@@ -259,6 +284,13 @@ class CustomClass {
 			i++;
 		}
 		
+	}
+
+	private function cacheSuperField(name:String, value:Dynamic) {
+		if(_cachedSuperFields != null) {
+			trace('cached ${name} = ${value}');
+			_cachedSuperFields.set(name, value);
+		}
 	}
 
 	public function hget(name:String):Dynamic {
