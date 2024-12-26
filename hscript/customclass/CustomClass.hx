@@ -254,7 +254,6 @@ class CustomClass {
 
 		if(!_cachedSuperFields.empty()) {
 			for (f => v in _cachedSuperFields) {
-				trace('Setting in ${className} ${f}: ${v}');
 				this.hset(f, v);
 			}
 			_cachedSuperFields.clear();
@@ -288,7 +287,6 @@ class CustomClass {
 
 	private function cacheSuperField(name:String, value:Dynamic) {
 		if(_cachedSuperFields != null) {
-			trace('cached ${name} = ${value}');
 			_cachedSuperFields.set(name, value);
 		}
 	}

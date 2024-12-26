@@ -13,6 +13,7 @@ import haxe.macro.*;
 import Sys;
 
 using StringTools;
+using Lambda;
 
 class ClassExtendMacro {
 	public static inline final FUNC_PREFIX = "_HX_SUPER__";
@@ -203,6 +204,7 @@ class ClassExtendMacro {
 			//trace(getModuleName(cl));
 
 			var hasNew = false;
+			var constructor:Field = null;
 
 			for(_field in [fields.copy(), superFields.copy()])
 			for(f in _field) {
@@ -210,6 +212,15 @@ class ClassExtendMacro {
 					continue;
 				if (f.name == "new") {
 					hasNew = true;
+					switch (f.kind) {
+						case FFun(fn):
+							constructor = buildConstructor(fn.args);
+							
+							shadowClass.fields.push(constructor);
+							definedFields.push(f.name);
+						default:
+							continue;
+					}
 					continue;
 				}
 				if (f.name.startsWith(FUNC_PREFIX))
@@ -355,7 +366,7 @@ class ClassExtendMacro {
 			shadowClass.fields.push({
 				name: "__cachedFields",
 				pos: Context.currentPos(),
-				kind: FVar(macro: Map<String, Dynamic>, macro []),
+				kind: FVar(macro: Map<String, Dynamic>),
 				access: [APublic, AStatic]
 			});
 			
@@ -402,29 +413,6 @@ class ClassExtendMacro {
 				kind: FVar(macro: Array<String>),
 				access: [APublic]
 			});
-
-			/*
-			// Adding a constructor that runs Cached fields
-			var superCallArgs:Array<Expr> = [for (arg in superConstArgs) macro $i{arg.name}];
-			shadowClass.fields.push({
-				name: "new",
-				access: [APublic],
-				pos: Context.currentPos(),
-				kind: FFun({
-					args: superConstArgs,
-					expr: macro {
-						if(__cachedFields != null) {
-							for(k => v in __cachedFields) {
-								Reflect.setProperty(this, k, v);
-							}
-							__cachedFields = null;
-						}
-						// Call the super constructor with appropriate args
-						super($a{superCallArgs});
-					}
-				})
-			});
-			*/
 
 			shadowClass.fields.push({
 				name: "__callGetter",
@@ -639,6 +627,32 @@ class ClassExtendMacro {
 		}
 
 		return fields;
+	}
+
+	static function buildConstructor(constArgs:Array<FunctionArg>):Field {
+		var superCallArgs:Array<Expr> = [for (arg in constArgs) macro $i{arg.name}];
+
+		return {
+			name: 'new',
+			access: [APublic],
+			pos: Context.currentPos(),
+			kind: FFun({
+				args: constArgs,
+				expr: macro
+				{
+					// Call the super constructor with appropriate args
+					super($a{superCallArgs});
+
+					if(__cachedFields != null) {
+						for(k => v in __cachedFields) {
+							Reflect.setProperty(this, k, v);
+							trace(k);
+						}
+						__cachedFields = null;
+					}
+				},
+			}),
+		};
 	}
 }
 #else
