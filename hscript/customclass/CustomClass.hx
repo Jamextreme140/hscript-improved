@@ -14,6 +14,47 @@ using StringTools;
  * @see https://github.com/larsiusprime/polymod/tree/master/polymod/hscript/_internal
  */
 class CustomClass {
+	
+	public static function callStaticFunction(interp:Interp, fn:FunctionDecl, args:Array<Dynamic> = null) {
+		var r:Dynamic = null;
+
+		var previousValues:Map<String, Dynamic> = [];
+		var i = 0;
+		for (a in fn.args) {
+			var value:Dynamic = null;
+
+			if (args != null && i < args.length) {
+				value = args[i];
+			} else if (a.value != null) {
+				value = interp.expr(a.value);
+			}
+			// NOTE: We assign these as variables rather than locals because those get wiped when we enter the function.
+			if (interp.variables.exists(a.name)) {
+				previousValues.set(a.name, interp.variables.get(a.name));
+			}
+			interp.variables.set(a.name, value);
+			i++;
+		}
+		try {
+			r = interp.execute(fn.body);
+		} catch (e:hscript.Expr.Error) {
+			// A script error occurred while executing the script function.
+			// Purge the function from the cache so it is not called again.
+			//purgeFunction(name);
+			interp.error(#if hscriptPos e.e #else e #end);
+		}
+
+		for (a in fn.args) {
+			if (previousValues.exists(a.name)) {
+				interp.variables.set(a.name, previousValues.get(a.name));
+			} else {
+				interp.variables.remove(a.name);
+			}
+		}
+
+		return r;
+	}
+
 	public var __interp:Interp;
 
 	public var superClass:Dynamic = null;
@@ -29,13 +70,17 @@ class CustomClass {
 		if (__class.pkg != null) {
 			name += __class.pkg.join(".");
 		}
-		name += __class.name;
+		name += __class.clsDecl.name;
 		return name;
 	}
 
-	public function new(__class:CustomClassDecl, args:Array<Dynamic>, ?extendFieldDecl:Map<String, Dynamic>) {
+	public function new(__class:CustomClassDecl, args:Array<Dynamic>, ?extendFieldDecl:Map<String, Dynamic>, ?prevInterp:Interp) {
 		this.__class = __class;
 		this.__interp = new Interp(this);
+		if(prevInterp != null && prevInterp.importFailedCallback != null && prevInterp.errorHandler != null) {
+			__interp.importFailedCallback = prevInterp.importFailedCallback;
+			__interp.errorHandler = prevInterp.errorHandler;
+		}
 		buildImports();
 		buildSuperConstructor();
 		if(extendFieldDecl != null)
@@ -44,10 +89,10 @@ class CustomClass {
 
 		if (findField("new") != null) {
 			callFunction("new", args);
-			if (superClass == null && __class.extend != null) {
+			if (superClass == null && __class.clsDecl.extend != null) {
 				@:privateAccess this.__interp.error(ECustom("super() not called"));
 			}
-		} else if (__class.extend != null) {
+		} else if (__class.clsDecl.extend != null) {
 			createSuperClass(args);
 		}
 	}
@@ -62,13 +107,13 @@ class CustomClass {
 		if (args == null)
 			args = [];
 
-		var extendString = new Printer().typeToString(__class.extend);
+		var extendString = new Printer().typeToString(__class.clsDecl.extend);
 		if (__class.pkg != null && extendString.indexOf(".") == -1) {
 			extendString = __class.pkg.join(".") + "." + extendString;
 		}
 		var classDescriptor = Interp.findCustomClassDescriptor(extendString);
 		if (classDescriptor != null) {
-			var abstractSuperClass:CustomClass = new CustomClass(classDescriptor, args, _cachedSuperFields);
+			var abstractSuperClass:CustomClass = new CustomClass(classDescriptor, args, _cachedSuperFields, this.__interp);
 			superClass = abstractSuperClass;
 		} else {
 			var c = Type.resolveClass('${extendString}_HSX');
@@ -159,7 +204,7 @@ class CustomClass {
 			return _cachedFieldDecls.get(name);
 		}
 		if(cache) return null;
-		for (f in __class.fields) {
+		for (f in __class.clsDecl.fields) {
 			if (f.name == name) {
 				return f;
 			}
@@ -172,7 +217,7 @@ class CustomClass {
 			return _cachedFunctionDecls.get(name);
 		}
 		if(cache) return null;
-		for (f in __class.fields) {
+		for (f in __class.clsDecl.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
 					case KFunction(fn):
@@ -191,7 +236,7 @@ class CustomClass {
 			return _cachedVarDecls.get(name);
 		}
 		if(cache) return null;
-		for (f in __class.fields) {
+		for (f in __class.clsDecl.fields) {
 			if (f.name == name) {
 				switch (f.kind) {
 					case KVar(v):
@@ -238,7 +283,7 @@ class CustomClass {
 		_cachedVarDecls = [];
 		if(_cachedSuperFields == null) _cachedSuperFields = [];
 
-		for (f in __class.fields) {
+		for (f in __class.clsDecl.fields) {
 			_cachedFieldDecls.set(f.name, f);
 			switch (f.kind) {
 				case KFunction(fn):
@@ -266,8 +311,10 @@ class CustomClass {
 		var i:Int = 0;
 		for(_import in __class.imports) {
 			var importedClass = _import.fullPath;
-			if(Interp.customClassDescriptorExist(importedClass))
+			if(Interp.customClassDescriptorExist(importedClass)) {
+				this.__interp.importFailedCallback(importedClass.split("."));
 				continue;
+			}
 			#if hscriptPos
 			var e:Expr = {
 				e: ExprDef.EImport(importedClass),

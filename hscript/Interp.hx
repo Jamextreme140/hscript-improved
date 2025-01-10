@@ -81,7 +81,7 @@ class Interp {
 	}
 
 	private static function registerCustomClass(c:CustomClassDecl) {
-		var name = c.name;
+		var name = c.clsDecl.name;
 		if (c.pkg != null) {
 			name = c.pkg.join(".") + "." + name;
 		}
@@ -299,7 +299,7 @@ class Interp {
 						_proxy.hset(id, v);
 						return v;
 					}
-					else if(_proxy.superClass == null && _proxy.__class.extend != null){
+					else if(_proxy.superClass == null && _proxy.__class.clsDecl.extend != null){
 						// Caches the declaration to set it once superClass is created
 						var v = expr(e2);
 						_proxy.cacheSuperField(id, v);
@@ -368,7 +368,7 @@ class Interp {
 										return v;
 									}
 								}
-								else if(_proxy.superClass == null && _proxy.__class.extend != null){
+								else if(_proxy.superClass == null && _proxy.__class.clsDecl.extend != null){
 									// Caches the declaration to set it once superClass is created
 									var v = expr(e2);
 									_proxy.cacheSuperField(f, v);
@@ -797,7 +797,7 @@ class Interp {
 				var extendPath:Null<CType> = extend != null ? CTPath(importVar(extend).split(".")) : null;
 				var interfacesPaths:Array<CType> = [for (i in interfaces) CTPath(importVar(i).split("."))];
 
-				var customClassDecl:CustomClassDecl = {
+				var classDecl:ClassDecl = {
 					name: name,
 					params: {},
 					meta: [],
@@ -806,10 +806,14 @@ class Interp {
 					implement: interfacesPaths,
 					fields: customClassFields,
 					isExtern: false,
-					imports: localCustomClassImport
 				};
+				var customClassDecl:CustomClassDecl = {
+					clsDecl: classDecl,
+					imports: localCustomClassImport,
+				};
+				customClassDecl.cacheFields();
 				registerCustomClass(customClassDecl);
-				localParsedClasses.push(customClassDecl.name);
+				localParsedClasses.push(customClassDecl.clsDecl.name);
 				//customClasses.set(name, new CustomClassHandler(this, name, fields, importVar(extend), [for (i in interfaces) importVar(i)]));
 			case EImport(c, n):
 				if (!importEnabled)
@@ -1404,6 +1408,15 @@ class Interp {
 			}
 		}
 
+		// Static access
+		if(o is CustomClassDecl) {
+			var staticClass:CustomClassDecl = cast o;
+			var staticField = staticClass.getStaticField(f);
+			if(staticField != null)
+				return staticField;
+		}
+
+
 		var cls = Type.getClass(o);
 		if (useRedirects && {
 			var cl:Null<String> = getClassType(o, cls);
@@ -1465,6 +1478,16 @@ class Interp {
 			return v;
 		}
 
+		if (o is CustomClassDecl) {
+			var staticClass:CustomClassDecl = cast o;
+			try {
+				return staticClass.setStaticField(f, v);
+			}
+			catch(e) {
+				error(EUnknownVariable(f));
+			}
+		}
+
 		if (useRedirects && {
 			var cl:Null<String> = getClassType(o);
 			cl != null && setRedirects.exists(cl) && (_setRedirect = setRedirects[cl]) != null;
@@ -1506,6 +1529,11 @@ class Interp {
 			_nextCallObject = null;
 			var proxy:CustomClass = cast o;
 			return proxy.callFunction(f, args);
+		}
+		else if (o is CustomClassDecl) {
+			// Static function call
+			var staticClass:CustomClassDecl = cast o;
+			return staticClass.callStaticFunction(f, args);
 		}
 
 		if (_hasScriptObject && o == CustomClassHandler.staticHandler) {
@@ -1601,13 +1629,13 @@ class Interp {
 	function cnew(cl:String, args:Array<Dynamic>):Dynamic {
 		// Custom Class
 		if (_customClassDescriptors.exists(cl)) {
-			var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(cl), args);
+			var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(cl), args, null, this);
 			return proxy;
 		} else if (_inCustomClass) {
 			if (_proxy.__class.pkg != null) {
 				var packagedClass = _proxy.__class.pkg.join(".") + "." + cl;
 				if (_customClassDescriptors.exists(packagedClass)) {
-					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(packagedClass), args);
+					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(packagedClass), args, null, this);
 					return proxy;
 				}
 			}
@@ -1615,7 +1643,7 @@ class Interp {
 			if (_proxy.__class.imports != null && _proxy.__class.imports.exists(cl)) {
 				var importedClass = _proxy.__class.imports.get(cl).fullPath;
 				if (_customClassDescriptors.exists(importedClass)) {
-					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(importedClass), args);
+					var proxy:CustomClass = new CustomClass(_customClassDescriptors.get(importedClass), args, null, this);
 					return proxy;
 				}
 
@@ -1673,9 +1701,7 @@ class Interp {
 							}
 						}
 					}
-					var classDecl:CustomClassDecl = {
-						imports: imports,
-						pkg: pkg,
+					var classDecl:ClassDecl = {
 						name: c.name,
 						params: c.params,
 						meta: c.meta,
@@ -1685,7 +1711,14 @@ class Interp {
 						fields: c.fields,
 						isExtern: c.isExtern
 					};
-					registerCustomClass(classDecl);
+
+					var customClassDecl:CustomClassDecl = {
+						clsDecl: classDecl,
+						imports: imports,
+						pkg: pkg
+					}
+					customClassDecl.cacheFields();
+					registerCustomClass(customClassDecl);
 				case DTypedef(_):
 					//TODO: maybe make this work :3
 			}
