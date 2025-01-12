@@ -1,10 +1,12 @@
 package hscript.customclass;
 
+import haxe.Constraints.Function;
+import hscript.Expr.FieldDecl;
 import hscript.Expr.VarDecl;
 import hscript.Expr.FunctionDecl;
 
 @:structInit
-class CustomClassDecl {
+class CustomClassDecl implements IHScriptCustomBehaviour{
     public var clsDecl:Expr.ClassDecl;
     /**
 	 * Save performance and improve sandboxing by resolving imports at interpretation time.
@@ -14,12 +16,14 @@ class CustomClassDecl {
 
 	public var staticInterp:Interp = new Interp();
 
+	var _cachedStaticFields:Map<String, FieldDecl> = [];
 	var _cachedStaticFunctions:Map<String, FunctionDecl> = [];
 	var _cachedStaticVariables:Map<String, VarDecl> = [];
 
 	public function cacheFields() {
 		for(f in clsDecl.fields) {
 			if(f.access.contains(AStatic)) {
+				_cachedStaticFields.set(f.name, f);
 				switch (f.kind) {
 					case KFunction(fn):
 						_cachedStaticFunctions.set(f.name, fn);
@@ -92,6 +96,32 @@ class CustomClassDecl {
 		return null;
 	}
 
+	public function setStaticField(name:String, val:Dynamic):Dynamic {
+		if(hasVar(name)) {
+			this.staticInterp.variables.set(name, val);
+			return val;
+		}
+
+		throw "static field '" + name + "' does not exist in custom class '" + this.clsDecl.name + "'";
+	}
+
+	private function hasFunction(name:String) {
+		if(_cachedStaticFunctions.exists(name))
+			return true;
+
+		for(f in clsDecl.fields) {
+			if(f.name == name && f.access.contains(AStatic)) {
+				switch (f.kind) {
+					case KFunction(fn):
+						return true;
+					default:
+				}
+			}
+		}
+
+		return false;
+	}
+
 	private function hasVar(name:String):Bool {
 		if(_cachedStaticVariables.exists(name))
 			return true;
@@ -109,13 +139,41 @@ class CustomClassDecl {
 		return false;
 	}
 
-	public function setStaticField(name:String, val:Dynamic):Dynamic {
-		if(hasVar(name)) {
-			this.staticInterp.variables.set(name, val);
-			return val;
+	public function hasField(name:String):Bool {
+		if(_cachedStaticFields.exists(name))
+			return true;
+
+		for(f in clsDecl.fields) {
+			if(f.name == name && f.access.contains(AStatic)) {
+				return true;
+			}
 		}
 
-		throw "static field '" + name + "' does not exist in custom class '" + this.clsDecl.name + "'";
+		return false;
+	}
+
+	public function hget(name:String):Dynamic {
+		var r:Dynamic = null;
+		if(hasField(name)) {
+			if(hasVar(name)) {
+				r = getStaticField(name);
+				return r;
+			}
+			if(hasFunction(name)) {
+				var fn:Function = Reflect.makeVarArgs(function(args:Array<Dynamic>) {
+					return this.callStaticFunction(name, args);
+				});
+				return fn;
+			}
+		}
+		return r;
+	}
+
+	public function hset(name:String, val:Dynamic):Dynamic {
+		if(hasField(name)) {
+			return this.setStaticField(name, val);
+		}
+		return val;
 	}
 }
 

@@ -68,6 +68,7 @@ class RedeclaredVar {
 }
 
 @:access(hscript.customclass.CustomClass)
+@:access(hscript.customclass.CustomClassDecl)
 @:analyzer(optimize, local_dce, fusion, user_var_fusion)
 class Interp {
 	private static var _customClassDescriptors:Map<String, CustomClassDecl> = new Map<String, CustomClassDecl>();
@@ -286,10 +287,15 @@ class Interp {
 		var v = expr(e2);
 		switch (Tools.expr(e1)) {
 			case EIdent(id):
-				// Make sure setting superclass fields directly works.
+				// Make sure setting superclass/static fields directly works.
 				// Also ensures property functions are accounted for.
 				if (_inCustomClass) {
-					if(_proxy.superClass != null && _proxy.superHasField(id)) {
+					if(_proxy.__class.hasField(id)) {
+						var v = expr(e2);
+						_proxy.__class.hset(id, v);
+						return v;
+					}
+					else if(_proxy.superClass != null && _proxy.superHasField(id)) {
 						var v = expr(e2);
 						Reflect.setProperty(_proxy.superClass, id, v);
 						return v;
@@ -631,25 +637,37 @@ class Interp {
 				} else {
 					return _proxy.superClass;
 				}
-			} else if (id == "this") {
+			} 
+			else if (id == "this") 
 				return _proxy;
-			}
 		}
 
 		if (locals.exists(id))
 			return locals.get(id).r;
-
 		if (variables.exists(id))
 			return variables.get(id);
+		if (publicVariables.exists(id))
+			return publicVariables.get(id);
+		if (staticVariables.exists(id))
+			return staticVariables.get(id);
+		if (customClasses.exists(id))
+			return customClasses.get(id);
 
-		// TODO: Allow access to custom classes for calling static functions.
+		if(_customClassDescriptors.exists(id))
+			return _customClassDescriptors.get(id);
+
 		// Custom Class
 		if (_inCustomClass) {
 			// We are calling a LOCAL function from the same module.
+			if (_proxy.__class.hasField(id)) {
+				// Static access
+				return _proxy.__class.hget(id);
+			}
 			if (_proxy.findFunction(id, true) != null) {
 				_nextCallObject = _proxy;
 				return _proxy.resolveField(id);
-			} else if (_proxy.superHasField(id)) {
+			}
+			else if (_proxy.superHasField(id)) {
 				_nextCallObject = _proxy.superClass;
 				return Reflect.getProperty(_proxy.superClass, id);
 			} else {
@@ -662,16 +680,6 @@ class Interp {
 				}
 			}
 		}
-		
-		if (publicVariables.exists(id))
-			return publicVariables.get(id);
-		if (staticVariables.exists(id))
-			return staticVariables.get(id);
-		if (customClasses.exists(id))
-			return customClasses.get(id);
-
-		if(_customClassDescriptors.exists(id))
-			return _customClassDescriptors.get(id);
 
 		if (_hasScriptObject) {
 			// search in object
@@ -1385,20 +1393,12 @@ class Interp {
 		if (o == null)
 			error(EInvalidAccess(f));
 
-		if (o is CustomClass) {
+		if (o is CustomClass) { //this.field
 			var proxy:CustomClass = cast o;
-			/*
-			if (proxy.__interp.variables.exists(f)) {
-				return proxy.__interp.variables.get(f);
-			} else if (proxy.superClass != null && (Reflect.hasField(proxy.superClass, f))) {
-				return isBypassAccessor ? Reflect.field(proxy.superClass, f) : Reflect.getProperty(proxy.superClass, f);
-			} else {
-				try {
-					return proxy.hget(f);
-				} catch (e:Dynamic) {}
-				error(EUnknownVariable(f));
-			}
-			*/
+
+			if (proxy.__class.hasField(f))
+				error(ECustom('The field ${f} should be accessed in a static way.'));
+
 			if (proxy.__interp.variables.exists(f)) 
 				return proxy.__interp.variables.get(f);
 			try {
@@ -1407,15 +1407,6 @@ class Interp {
 				error(EUnknownVariable(f));
 			}
 		}
-
-		// Static access
-		if(o is CustomClassDecl) {
-			var staticClass:CustomClassDecl = cast o;
-			var staticField = staticClass.getStaticField(f);
-			if(staticField != null)
-				return staticField;
-		}
-
 
 		var cls = Type.getClass(o);
 		if (useRedirects && {
@@ -1459,6 +1450,10 @@ class Interp {
 
 		if (o is CustomClass) {
 			var proxy:CustomClass = cast o;
+
+			if (proxy.__class.hasField(f))
+				error(ECustom('The field ${f} should be accessed in a static way.'));
+
 			if (proxy.__interp.variables.exists(f)) {
 				proxy.__interp.variables.set(f, v);
 			} else if (proxy.superClass != null && (Reflect.hasField(proxy.superClass, f))) {
@@ -1476,16 +1471,6 @@ class Interp {
 			}
 			
 			return v;
-		}
-
-		if (o is CustomClassDecl) {
-			var staticClass:CustomClassDecl = cast o;
-			try {
-				return staticClass.setStaticField(f, v);
-			}
-			catch(e) {
-				error(EUnknownVariable(f));
-			}
 		}
 
 		if (useRedirects && {
@@ -1520,7 +1505,7 @@ class Interp {
 
 	function fcall(o:Dynamic, f:String, args:Array<Dynamic>):Dynamic {
 		// Custom logic to handle super calls to prevent infinite recursion
-		if(_inCustomClass && o == _proxy.superClass) {
+		if(_inCustomClass) {
 			// Force call super function.
 			if(o == _proxy.superClass)
 				return call(o, Reflect.field(_proxy.superClass, '_HX_SUPER__${f}'), args);

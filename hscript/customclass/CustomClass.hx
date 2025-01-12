@@ -1,5 +1,6 @@
 package hscript.customclass;
 
+import haxe.Constraints.Function;
 import hscript.Expr;
 import hscript.Expr.VarDecl;
 import hscript.Expr.FunctionDecl;
@@ -13,6 +14,7 @@ using StringTools;
  * Based on Polymod Hscript class system
  * @see https://github.com/larsiusprime/polymod/tree/master/polymod/hscript/_internal
  */
+ @:access(hscript.customclass.CustomClassDecl)
 class CustomClass {
 	
 	public static function callStaticFunction(interp:Interp, fn:FunctionDecl, args:Array<Dynamic> = null) {
@@ -205,6 +207,7 @@ class CustomClass {
 		}
 		if(cache) return null;
 		for (f in __class.clsDecl.fields) {
+			if(f.access.contains(AStatic)) continue; // Skip static field. It's handled by CustomClassDecl.hx
 			if (f.name == name) {
 				return f;
 			}
@@ -218,6 +221,7 @@ class CustomClass {
 		}
 		if(cache) return null;
 		for (f in __class.clsDecl.fields) {
+			if(f.access.contains(AStatic)) continue; // Skip static field. It's handled by CustomClassDecl.hx
 			if (f.name == name) {
 				switch (f.kind) {
 					case KFunction(fn):
@@ -237,6 +241,7 @@ class CustomClass {
 		}
 		if(cache) return null;
 		for (f in __class.clsDecl.fields) {
+			if(f.access.contains(AStatic)) continue; // Skip static field. It's handled by CustomClassDecl.hx
 			if (f.name == name) {
 				switch (f.kind) {
 					case KVar(v):
@@ -284,6 +289,7 @@ class CustomClass {
 		if(_cachedSuperFields == null) _cachedSuperFields = [];
 
 		for (f in __class.clsDecl.fields) {
+			if(f.access.contains(AStatic)) continue; // Skip static field. It's handled by CustomClassDecl.hx
 			_cachedFieldDecls.set(f.name, f);
 			switch (f.kind) {
 				case KFunction(fn):
@@ -380,6 +386,12 @@ class CustomClass {
 				return this.callFunction;
 			default:
 				if (this.findFunction(name) != null) {
+					var fn:Function = Reflect.makeVarArgs(function(args:Array<Dynamic>) {
+						return this.callFunction(name, args);
+					});
+
+					return fn;
+					/*
 					var fn = this.findFunction(name);
 					var nargs = 0;
 					if (fn.args != null) {
@@ -402,7 +414,9 @@ class CustomClass {
 						case _: @:privateAccess this.__interp.error(ECustom("only 8 params allowed in script class functions (.bind limitation)"));
 						#end
 					}
-				} else if (this.findVar(name) != null) {
+					*/
+				}  
+				else if (this.findVar(name) != null) {
 					var v = this.findVar(name);
 
 					var varValue:Dynamic = null;
@@ -451,8 +465,9 @@ class CustomClass {
 		}
 	}
 	
-	// I can't get what is the purpose of this...
+	// I can't get what is the purpose of this... (UPDATE: Now I know)
 	// This is for the abstract class
+	/*
 	private inline function callFunction0(name:String) {
 		return callFunction(name);
 	}
@@ -490,4 +505,5 @@ class CustomClass {
 			arg7:Dynamic):Dynamic {
 		return callFunction(name, [arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7]);
 	}
+	*/
 }
